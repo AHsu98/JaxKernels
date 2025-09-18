@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jaxkernels"
+version = "0.1.0"
+description = "Small JAX-based kernel primitives and fitting utilities (Equinox friendly)."
+authors = [ { name = "AHsu98" } ]
+requires-python = ">=3.10"
+dependencies = [
+    "jax",
+    "jaxlib",
+    "equinox",
+    "jaxopt"
+]
+
+[project.urls]
+Home = "https://github.com/AHsu98/JaxKernels"

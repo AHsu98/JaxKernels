@@ -83,3 +83,4 @@ jax_cache/
 # Local data / outputs
 outputs/
 *.npz
+.github/copilot-instructions.md
