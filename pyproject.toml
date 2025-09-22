@@ -12,8 +12,14 @@ dependencies = [
     "jax",
     "jaxlib",
     "equinox",
-    "jaxopt"
+    "jaxopt",
+    "sympy",
+    "sympy2jax",
+    "tqdm"
 ]
 
 [project.urls]
 Home = "https://github.com/AHsu98/JaxKernels"
+
+[tool.setuptools.packages.find]
+include = ["jaxkernels"]

@@ -1,8 +1,21 @@
 import jax
 import jax.numpy as jnp
 from tqdm.auto import tqdm
-from jsindy.util import tree_scale,tree_dot,tree_add
 from warnings import warn
+from jax import tree_util
+
+
+def tree_scale(pytree, scalar):
+    return tree_util.tree_map(lambda x: scalar * x, pytree)
+
+
+def tree_add(a, b):
+    return tree_util.tree_map(lambda x, y: x + y, a, b)
+
+
+def tree_dot(a, b):
+    leaves = tree_util.tree_map(lambda x, y: jnp.vdot(x, y), a, b)
+    return sum([jnp.sum(x) for x in tree_util.tree_leaves(leaves)])
 
 def build_armijo_linesearch(f,decrease_ratio=0.5,slope=0.05,max_iter = 25):
     def armijo_linesearch(x, f_curr, d, g, t0=0.1):
