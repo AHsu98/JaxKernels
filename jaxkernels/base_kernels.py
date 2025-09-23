@@ -30,19 +30,35 @@ class Kernel(eqx.Module):
         else:
             return NotImplemented
     
-    def __mul__(self,other:"Kernel"):
+    def __mul__(self, other: "Kernel"):
         """
         Overload the '*' operator so we can do k1 * k2.
-        Internally, we return a ProductKernel object containing both.
-        Also handles the case if `other` is already a ProductKernel, in
-        which case we combine everything into one big sum.
+        Handles:
+          - Kernel * Kernel -> ProductKernel(self, other)
+          - Kernel * ProductKernel -> merge into one ProductKernel
+          - Kernel * scalar -> ProductKernel(self, ConstantKernel(scalar))
         """
+        # Scalar detection: jnp.ndim returns 0 for Python scalars and 0-d arrays
+        try:
+            is_scalar = jnp.ndim(other) == 0
+        except Exception:
+            is_scalar = isinstance(other, (int, float))
+
         if isinstance(other, ProductKernel):
             return ProductKernel(*( [self] + list(other.kernels) ))
         elif isinstance(other, Kernel):
             return ProductKernel(self, other)
+        elif is_scalar:
+            # Convert scalar to Python float and wrap as ConstantKernel
+            return ProductKernel(self, ConstantKernel(float(other)))
         else:
             return NotImplemented
+
+    def __rmul__(self, other):
+        """
+        Ensure scalar * kernel and Kernel * scalar behave the same way.
+        """
+        return self.__mul__(other)
         
     def transform(self,f):
         """
