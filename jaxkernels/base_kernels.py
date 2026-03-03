@@ -209,3 +209,75 @@ class ConstantKernel(Kernel):
     def __str__(self):
         v = softplus(self.raw_variance)
         return f"{v:.3f}"
+
+class TensorProductKernel(Kernel):
+    """
+    Tensor-product kernel across input dimensions.
+
+    If initialized with [k1,...,kd]:
+        K(x,y) = Π_i k_i(x[i], y[i])
+
+    If initialized with a single kernel k:
+        K(x,y) = Π_i k(x[i], y[i])
+    """
+
+    kernels: tuple[Kernel, ...] | None
+    base_kernel: Kernel | None
+    _use_base: bool = eqx.field(static=True)
+
+    def __init__(self, kernels):
+        # Case 1: TensorProductKernel(kernel)
+        if isinstance(kernels, Kernel):
+            self.base_kernel = kernels
+            self.kernels = None
+            self._use_base = True
+            return
+
+        # Case 2: TensorProductKernel([k1,k2,...])
+        if isinstance(kernels, (list, tuple)):
+            if len(kernels) == 0:
+                raise ValueError("TensorProductKernel requires at least one kernel.")
+            if not all(isinstance(k, Kernel) for k in kernels):
+                raise TypeError("TensorProductKernel(list) requires Kernel instances.")
+            self.kernels = tuple(kernels)
+            self.base_kernel = None
+            self._use_base = False
+            return
+
+        raise TypeError("TensorProductKernel expects a Kernel or a list/tuple of Kernels.")
+
+    def __call__(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
+
+        if x.ndim != 1 or y.ndim != 1:
+            raise ValueError(
+                f"TensorProductKernel expects 1D inputs. Got x.ndim={x.ndim}, y.ndim={y.ndim}."
+            )
+
+        if x.shape[0] != y.shape[0]:
+            raise ValueError(
+                f"TensorProductKernel expects x,y with same dimension. Got {x.shape[0]} and {y.shape[0]}."
+            )
+
+        d = x.shape[0]
+
+        if self._use_base:
+            k = self.base_kernel
+            val = 1.0
+            for i in range(d):
+                val = val * k(x[i], y[i])
+            return val
+
+        if len(self.kernels) != d:
+            raise ValueError(
+                f"TensorProductKernel got {len(self.kernels)} kernels but input dimension is {d}."
+            )
+
+        val = 1.0
+        for i, k_i in enumerate(self.kernels):
+            val = val * k_i(x[i], y[i])
+        return val
+
+    def __str__(self):
+        if self._use_base:
+            return f"TensorProductKernel({self.base_kernel})"
+        return "TensorProductKernel([" + ", ".join(str(k) for k in self.kernels) + "])"
