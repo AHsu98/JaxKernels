@@ -245,8 +245,7 @@ class TensorProductKernel(Kernel):
             self._kernels = kernels
 
             def _eval_single(x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
-                vals = jax.vmap(lambda xi, yi: k(xi, yi))(x, y)
-                return jnp.prod(vals)
+                return jnp.prod(jax.vmap(k)(x, y))
 
             self._validate = _validate_common
             self._eval = _eval_single
