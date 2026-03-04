@@ -219,11 +219,6 @@ class TensorProductKernel(Kernel):
 
     If initialized with a single kernel k:
         K(x,y) = Π_i k(x[i], y[i])
-
-    Implementation:
-        - Single kernel case uses vmap for efficiency.
-        - List-of-kernels case reuses TransformedKernel + ProductKernel.
-        - The evaluation path is decided in __init__ so __call__ stays clean.
     """
 
     _eval: callable = eqx.field(static=True)
