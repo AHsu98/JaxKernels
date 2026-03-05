@@ -209,3 +209,96 @@ class ConstantKernel(Kernel):
     def __str__(self):
         v = softplus(self.raw_variance)
         return f"{v:.3f}"
+
+class TensorProductKernel(Kernel):
+    """
+    Tensor-product (separable) kernel across coordinates.
+
+    If initialized with [k1,...,kd]:
+        K(x,y) = Π_i k_i(x[i], y[i])
+
+    If initialized with a single kernel k:
+        K(x,y) = Π_i k(x[i], y[i])
+    """
+
+    _eval: callable = eqx.field(static=True)
+    _validate: callable = eqx.field(static=True)
+    _kernels: object
+
+    def __init__(self, kernels):
+
+        # ---------- common validation ----------
+        def _validate_common(x: jnp.ndarray, y: jnp.ndarray):
+            if x.ndim != 1 or y.ndim != 1:
+                raise ValueError(
+                    f"TensorProductKernel expects 1D inputs. Got x.ndim={x.ndim}, y.ndim={y.ndim}."
+                )
+            if x.shape[0] != y.shape[0]:
+                raise ValueError(
+                    f"TensorProductKernel expects x,y same length. Got {x.shape[0]} and {y.shape[0]}."
+                )
+
+        # ---------- case 1: single kernel ----------
+        if isinstance(kernels, Kernel):
+
+            k = kernels
+            self._kernels = kernels
+
+            def _eval_single(x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
+                return jnp.prod(jax.vmap(k)(x, y))
+
+            self._validate = _validate_common
+            self._eval = _eval_single
+            return
+
+        # ---------- case 2: list of kernels ----------
+        if not isinstance(kernels, (list, tuple)):
+            raise TypeError("TensorProductKernel expects a Kernel or a list/tuple of Kernels.")
+
+        if len(kernels) == 0:
+            raise ValueError("TensorProductKernel requires at least one kernel.")
+
+        if not all(isinstance(k, Kernel) for k in kernels):
+            raise TypeError("TensorProductKernel(list) requires Kernel instances.")
+
+        d_expected = len(kernels)
+        self._kernels = tuple(kernels)
+
+        # build coordinate kernels using TransformedKernel
+        transformed = []
+        for i, k_i in enumerate(kernels):
+            pick_i = (lambda z, i=i: z[i])
+            transformed.append(TransformedKernel(k_i, pick_i))
+
+        # combine via ProductKernel once
+        K = transformed[0]
+        for tk in transformed[1:]:
+            K = ProductKernel(K, tk)
+
+        def _validate_list(x: jnp.ndarray, y: jnp.ndarray):
+            _validate_common(x, y)
+            if x.shape[0] != d_expected:
+                raise ValueError(
+                    f"TensorProductKernel initialized with {d_expected} kernels "
+                    f"but input dimension is {x.shape[0]}."
+                )
+
+        def _eval_list(x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
+            return K(x, y)
+
+        self._validate = _validate_list
+        self._eval = _eval_list
+
+    def __call__(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
+        self._validate(x, y)
+        return self._eval(x, y)
+
+    def __repr__(self):
+
+        if isinstance(self._kernels, Kernel):
+            return f"TensorProductKernel({self._kernels})"
+
+        names = " ⊗ ".join(str(k) for k in self._kernels)
+        return f"TensorProductKernel({names})"
+
+    __str__ = __repr__
