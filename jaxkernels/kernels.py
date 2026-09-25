@@ -3,7 +3,7 @@ import jax.numpy as jnp
 from jax.nn import softplus
 import equinox as eqx
 from .matern import build_matern_core
-from .base_kernels import Kernel,softplus_inverse
+from .base_kernels import Kernel,softplus_inverse,is_concrete
 
 class TranslationInvariantKernel(Kernel):
     """
@@ -28,7 +28,7 @@ class TranslationInvariantKernel(Kernel):
             fix_lengthscale = False,
             ):
         self.raw_variance = softplus_inverse(jnp.array(variance))
-        if lengthscale<min_lengthscale:
+        if is_concrete(lengthscale) and lengthscale<min_lengthscale:
             raise ValueError("Initial lengthscale below minimum")
         self.raw_lengthscale = softplus_inverse(jnp.array(lengthscale) - min_lengthscale)
         self.min_lengthscale = min_lengthscale
@@ -105,7 +105,7 @@ class GaussianRBFKernel(Kernel):
 
     def __init__(self, lengthscale=1.0,variance=1.0,min_lengthscale = 0.01):
         # Convert user-supplied positive parameters to unconstrained domain
-        if lengthscale<min_lengthscale:
+        if is_concrete(lengthscale) and lengthscale<min_lengthscale:
             raise ValueError("Initial lengthscale below minimum")
         self.raw_variance = softplus_inverse(jnp.array(variance))
         self.raw_lengthscale = softplus_inverse(jnp.array(lengthscale) - min_lengthscale)
@@ -145,7 +145,7 @@ class RationalQuadraticKernel(Kernel):
 
     def __init__(self, lengthscale=1.0, alpha=1.0,variance=1.0,min_lengthscale = 0.01):
         self.raw_variance = softplus_inverse(jnp.array(variance))
-        self.raw_lengthscale = softplus_inverse(jnp.array(lengthscale))
+        self.raw_lengthscale = softplus_inverse(jnp.array(lengthscale) - min_lengthscale)
         self.raw_alpha = softplus_inverse(jnp.array(alpha))
         self.min_lengthscale = min_lengthscale
 
@@ -226,7 +226,7 @@ class LinearKernel(Kernel):
         """
         :param constant: A positive float specifying the kernel's variance
         """
-        if variance <= 0:
+        if is_concrete(variance) and variance <= 0:
             raise ValueError("LinearKernel requires a strictly positive constant.")
         # Store an unconstrained parameter via softplus-inverse
         self.raw_variance = softplus_inverse(jnp.array(variance))
@@ -257,8 +257,8 @@ class PolynomialKernel(Kernel):
     c: jnp.ndarray
 
     def __init__(self, variance: float = 1.0,c:float = 1.,degree: int = 2):
-        if variance <= 0:
-            raise ValueError("LinearKernel requires a strictly positive constant.")
+        if is_concrete(variance) and variance <= 0:
+            raise ValueError("PolynomialKernel requires a strictly positive constant.")
         self.raw_variance = softplus_inverse(jnp.array(variance))
         self.c = jnp.array(c)
         self.degree = degree
