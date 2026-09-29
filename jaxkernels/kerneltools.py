@@ -55,7 +55,13 @@ def get_selected_grad(k, index, selected_index):
     gradf = grad(k, index)
 
     def selgrad(*args):
-        return gradf(*args)[selected_index]
+        g = gradf(*args)
+        # a static index past the end would be clamped silently under jit (dx_k on 1-D points gave d/dx_0)
+        if jnp.ndim(g) != 1 or selected_index >= g.shape[0]:
+            raise IndexError(f"derivative in coordinate {selected_index} of points of shape {jnp.shape(g)}; "
+                             "dt_k/dx_k/dxx_k use the (t, x) convention (coordinates 0, 1); use partial_op(i) "
+                             "for points in R^d or derivative_op(n) for scalar points")
+        return g[selected_index]
 
     return selgrad
 
@@ -90,3 +96,52 @@ def nth_derivative_operator_1d(n):
     diff2_k.
     """
     return partial(nth_derivative_1d, n=n)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Functionals as cached plain functions (ah-hyper). A functional op(k, index) is structure wherever it is stored
+# (func_graph_comp's space.operators, objectives.Observations): the same arguments must give the same function
+# object, or jit recompiles. functools.partial objects and lambdas made per call are new objects each time; these
+# factories are cached.
+# ---------------------------------------------------------------------------------------------------------------
+from functools import lru_cache  # noqa: E402
+
+
+@lru_cache(maxsize=None)
+def partial_op(*coords):
+    """The functional d^n / dx_c1 ... dx_cn for points x in R^d (coords: coordinate indices, repeats allowed):
+    partial_op(1) is d/dx_1, partial_op(0, 0) is d^2/dx_0^2, partial_op(0, 1) the mixed second derivative."""
+    def op(k, index):
+        f = k
+        for c in coords:
+            f = get_selected_grad(f, index, c)
+        return f
+    op.__name__ = op.__qualname__ = "d_" + "_".join(str(c) for c in coords) if coords else "eval"
+    return op
+
+
+@lru_cache(maxsize=None)
+def derivative_op(n):
+    """The functional d^n / dx^n for scalar points (cached nth_derivative_operator_1d)."""
+    def op(k, index):
+        return nth_derivative_1d(k, index, n)
+    op.__name__ = op.__qualname__ = f"d{n}"
+    return op
+
+
+def laplacian(k, index):
+    """Trace of the Hessian in argument `index` (same as func_graph_comp.util.laplacian)."""
+    def lapk(*x):
+        return jnp.trace(jax.hessian(k, argnums=index)(*x))
+    return lapk
+
+
+@lru_cache(maxsize=None)
+def linear_combination_op(*terms):
+    """sum_j c_j L_j for terms ((c_1, L_1), (c_2, L_2), ...) with Python-float coefficients (structure), e.g.
+    linear_combination_op((1.0, dt_k), (-0.1, dxx_k)). For coefficients that are hyperparameters, write a
+    module-level functional that reads them from the kernel (see physics.heat_operator)."""
+    def op(k, index):
+        parts = [(c, L(k, index)) for c, L in terms]
+        return lambda *x: sum(c * g(*x) for c, g in parts)
+    return op
