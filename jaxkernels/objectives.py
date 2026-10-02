@@ -26,17 +26,15 @@ can be jitted and differentiated with respect to the kernel pytree and the noise
 noise: a scalar, one value per group (tuple/list), or an (n,) array. y: (n,) or (n, m) for m independent outputs
 sharing the kernel (then the objectives sum over outputs).
 
-Jit them (eqx.filter_jit, with folds closed over: they are static index arrays): evaluated eagerly, the nested
-derivatives of kernel functionals dispatch op by op and are slow (a Laplacian-Laplacian Gram block of 17 rows took
-~30 s eagerly on a loaded CPU, ~1 s jitted).
+Jit them with folds closed over because folds are static index arrays. Eager nested derivatives of kernel functionals
+dispatch operator by operator and can be slow.
 
 Pitfalls: the functionals must be defined for the kernel (a derivative of order m on both arguments needs a
 kernel 2m times differentiable at x = y: Matérn p >= m; beyond that the values are finite but wrong); ops are
 structure (module-level or cached functionals such as kerneltools.partial_op, not lambdas created per call, or jit
-recompiles). Under eqx.filter_jit, pass changing scalar noise as an array scalar; Python floats are static. Conditioning:
-the LOO/K-fold formulas use columns of L^-1; they agree with brute-force refits to ~1e-7 relative at noise variance
-1e-3..1e-4 (tests); for nearly noise-free data (tiny noise and jitter) both they and refits lose accuracy with the
-condition number of C.
+recompiles). Under eqx.filter_jit, pass changing scalar noise as an array scalar because Python floats are static.
+The LOO/K-fold formulas use columns of L^-1; for nearly noise-free data, both they and brute-force refits lose accuracy
+as the condition number of C grows.
 """
 from typing import Sequence
 
@@ -114,7 +112,6 @@ def _cholesky(kernel, noise, obs, jitter):
 
 def neg_log_marginal_likelihood(kernel, noise, obs, y, jitter=1e-10):
     """-log N(y | 0, C) = 1/2 y^T C^-1 y + 1/2 log det C + n/2 log 2 pi (summed over the columns of y)."""
-    obs = _as_obs(obs)
     L = _cholesky(kernel, noise, obs, jitter)
     a = solve_triangular(L, y, lower=True)
     m = 1 if jnp.ndim(y) == 1 else y.shape[1]
@@ -129,12 +126,11 @@ def _inverse_factor(kernel, noise, obs, jitter):
 
 def loo_residuals(kernel, noise, obs, y, jitter=1e-10):
     """(e, var): e_i = y_i - E[y_i | y_-i] = [C^-1 y]_i / [C^-1]_ii and var_i = Var[y_i | y_-i] = 1 / [C^-1]_ii."""
-    obs = _as_obs(obs)
     Li = _inverse_factor(kernel, noise, obs, jitter)
     alpha = Li.T @ (Li @ y)
     dinv = jnp.sum(Li**2, axis=0)
     var = 1.0 / dinv
-    return (alpha * var if jnp.ndim(y) == 1 else alpha * var[:, None]), var
+    return alpha * (var if jnp.ndim(y) == 1 else var[:, None]), var
 
 
 def loo_mse(kernel, noise, obs, y, jitter=1e-10):
@@ -146,7 +142,7 @@ def loo_nlpd(kernel, noise, obs, y, jitter=1e-10):
     """Mean over held-out entries of -log N(y_i | E[y_i | y_-i], Var[y_i | y_-i])."""
     e, var = loo_residuals(kernel, noise, obs, y, jitter)
     if jnp.ndim(y) == 2:
-        var = var[:, None] * jnp.ones_like(e)
+        var = jnp.broadcast_to(var[:, None], e.shape)
     return jnp.mean(0.5 * jnp.log(2 * jnp.pi * var) + 0.5 * e**2 / var)
 
 

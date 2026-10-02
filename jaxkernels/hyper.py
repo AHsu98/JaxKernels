@@ -1,34 +1,14 @@
 """Named access to kernel hyperparameters.
 
-Every array leaf of a kernel is a hyperparameter. A leaf stored as `raw_<name>` is positive, with value
-softplus(raw) + min_<name> (the owner's static field `min_<name>` if it has one, else 0); other array leaves
-(PolynomialKernel.c, SpectralMixtureKernel.periods, warp velocities, ...) are unconstrained: value = leaf.
+Every array leaf is a hyperparameter. A leaf stored as ``raw_<name>`` is positive, with value
+``softplus(raw) + min_<name>``; other array leaves are unconstrained. Names are pytree paths with the ``raw_`` prefix
+dropped. Leaves inside a FrozenKernel are excluded from filters and log vectors by default.
 
-A hyperparameter's name is its path in the pytree with the `raw_` prefix dropped:
+Include and exclude patterns are globs with only ``*`` and ``?`` special; brackets are literal. The accessors work on
+any pytree and preserve its leaf order and structure, so parameter replacement remains traceable.
 
-    GaussianRBFKernel(0.3)                       variance, lengthscale
-    TensorProductKernel([k1, k2])                _kernels[0].variance, _kernels[0].lengthscale, _kernels[1]...
-    k1 + k2, k1 * k2                             kernels[0].lengthscale, ...
-    WarpedKernel(k, TanhWarp(...))               kernel.lengthscale, warp.amplitudes, ...
-
-Leaves inside a FrozenKernel are marked frozen (excluded by default from filters and log vectors).
-
-    hyperparameters(k)                  {name: value}, constrained values in pytree order
-    describe(k)                         text table (name, shape, value, constraint, frozen)
-    with_hyperparameters(k, {name: v})  a new kernel, same structure (values broadcast to the leaf's shape). Traceable:
-                                        theta -> kernel can be jitted and differentiated
-    hyperparameter_filter(k, include=..., exclude=...)
-                                        pytree of bools for eqx.partition / eqx.filter_grad (True = trainable)
-    positive_names(k), to_log_vector(k, names), from_log_vector(k, names, z)
-                                        flat vector of log(value - minimum) (positive hyperparameters only), and back
-
-Patterns in include/exclude are globs on names with only * and ? special (brackets are literal):
-"*lengthscale", "_kernels[1].*". Works on any pytree, e.g. a func_graph_comp space's `.k`.
-
-Log coordinates are z = log(value - minimum), value = minimum + exp(z): every z is valid, so an optimizer in these
-coordinates cannot step below a lengthscale floor (min_lengthscale, 0.01 by default; with log(value) instead, a
-line search stepping below the floor produced NaN). For hyperparameters without a floor (variances, periods,
-diffusivities; lengthscales built with min_lengthscale=0.0) z = log(value).
+Log coordinates use ``z = log(value - minimum)`` and ``value = minimum + exp(z)``. Every coordinate is valid, so an
+optimizer cannot step below a positive parameter's floor.
 """
 import re
 from dataclasses import dataclass
@@ -103,8 +83,7 @@ def hyperparameter_info(tree):
             positive = True
             minimum = float(getattr(obj, "min_" + public, 0.0) or 0.0)
             parts[-1] = "." + public
-        out.append(Hyperparameter("".join(parts).lstrip("."), index, tuple(np.shape(leaf)), positive, minimum,
-                                  frozen))
+        out.append(Hyperparameter("".join(parts).lstrip("."), index, leaf.shape, positive, minimum, frozen))
     return out
 
 
@@ -188,8 +167,8 @@ def hyperparameter_filter(tree, include=None, exclude=None, include_frozen=False
     """
     table = _by_name(tree)
     chosen = {table[n].index for n in select(tree, include, exclude, include_frozen)}
-    leaves, treedef = jax.tree_util.tree_flatten(tree)
-    return jax.tree_util.tree_unflatten(treedef, [i in chosen for i in range(len(leaves))])
+    treedef = jax.tree_util.tree_structure(tree)
+    return jax.tree_util.tree_unflatten(treedef, [i in chosen for i in range(treedef.num_leaves)])
 
 
 def positive_names(tree, include_frozen=False):
