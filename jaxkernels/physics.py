@@ -36,7 +36,9 @@ import jax.numpy as jnp
 from jax.nn import softplus
 
 from .base_kernels import Kernel, as_float_array, check_positive, softplus_inverse, fmt
+from .kernels import MaternKernel
 from .kerneltools import partial_op
+from .periodic import PeriodicMaternKernel
 
 
 class HeatKernel(Kernel):
@@ -119,8 +121,17 @@ class MatrixKernel(eqx.Module):
 
 
 class DivergenceFreeKernel(MatrixKernel):
-    """2-D divergence-free matrix-valued kernel from a scalar stream-function kernel (module docstring)."""
+    """2-D divergence-free matrix-valued kernel from a scalar stream-function kernel (module docstring).
+
+    Known Matérn kernels are checked here; wrappers and custom kernels must satisfy the documented smoothness
+    precondition themselves.
+    """
     stream_kernel: Kernel
+
+    def __init__(self, stream_kernel):
+        if isinstance(stream_kernel, (MaternKernel, PeriodicMaternKernel)) and stream_kernel.p_order < 1:
+            raise ValueError("DivergenceFreeKernel requires Matérn p >= 1")
+        self.stream_kernel = stream_kernel
 
     @property
     def output_dim(self):

@@ -7,8 +7,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxkernels import (GaussianRBFKernel, MaternKernel, HeatKernel, heat_residual_op, DivergenceFreeKernel,
-                        IndexedMatrixKernel, TanhWarp, WarpedKernel, WeightedSumKernel, RationalQuadraticKernel)
+from jaxkernels import (GaussianRBFKernel, MaternKernel, PeriodicMaternKernel, HeatKernel, heat_residual_op,
+                        DivergenceFreeKernel, IndexedMatrixKernel, TanhWarp, WarpedKernel, WeightedSumKernel,
+                        RationalQuadraticKernel)
 from jaxkernels.kerneltools import eval_k, partial_op, get_kernel_block_ops
 from _helpers import gram
 
@@ -88,6 +89,14 @@ def test_divergence_free(stream):
     G = np.asarray(J(K.gram)(jnp.concatenate([X, Y])))
     ev = np.linalg.eigvalsh((G + G.T) / 2)
     assert ev[0] > -1e-10 * ev[-1]
+
+
+@pytest.mark.parametrize("stream", [MaternKernel(0, 0.4), PeriodicMaternKernel(0, 1.0, 0.4)])
+def test_divergence_free_rejects_rough_matern(stream):
+    with pytest.raises(ValueError, match="p >= 1"):
+        DivergenceFreeKernel(stream)
+    smooth = MaternKernel(1, 0.4) if isinstance(stream, MaternKernel) else PeriodicMaternKernel(1, 1.0, 0.4)
+    assert DivergenceFreeKernel(smooth).stream_kernel is smooth
 
 
 def test_divergence_free_rbf_closed_form():
