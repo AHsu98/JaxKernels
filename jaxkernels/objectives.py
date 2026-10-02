@@ -33,9 +33,10 @@ derivatives of kernel functionals dispatch op by op and are slow (a Laplacian-La
 Pitfalls: the functionals must be defined for the kernel (a derivative of order m on both arguments needs a
 kernel 2m times differentiable at x = y: Matérn p >= m; beyond that the values are finite but wrong); ops are
 structure (module-level or cached functionals such as kerneltools.partial_op, not lambdas created per call, or jit
-recompiles). Conditioning: the LOO/K-fold formulas use columns of L^-1; they agree with brute-force refits to ~1e-7
-relative at noise variance 1e-3..1e-4 (tests); for nearly noise-free data (tiny noise and jitter) both they and
-refits lose accuracy with the condition number of C.
+recompiles). Under eqx.filter_jit, pass changing scalar noise as an array scalar; Python floats are static. Conditioning:
+the LOO/K-fold formulas use columns of L^-1; they agree with brute-force refits to ~1e-7 relative at noise variance
+1e-3..1e-4 (tests); for nearly noise-free data (tiny noise and jitter) both they and refits lose accuracy with the
+condition number of C.
 """
 from typing import Sequence
 
