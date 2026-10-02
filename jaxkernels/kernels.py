@@ -30,8 +30,8 @@ class TranslationInvariantKernel(Kernel):
             fix_lengthscale = False,
             ):
         self.raw_variance = softplus_inverse(jnp.array(variance))
-        if is_concrete(lengthscale) and lengthscale<min_lengthscale:
-            raise ValueError("Initial lengthscale below minimum")
+        if is_concrete(lengthscale) and lengthscale <= min_lengthscale:
+            raise ValueError("Initial lengthscale must be above minimum")
         self.raw_lengthscale = softplus_inverse(jnp.array(lengthscale) - min_lengthscale)
         self.min_lengthscale = min_lengthscale
         self.fix_variance = fix_variance
@@ -52,7 +52,7 @@ class TranslationInvariantKernel(Kernel):
 
 
 class _StationaryKernel(Kernel):
-    """Shared fields of the lengthscale/variance kernels: softplus-positive raw leaves, lengthscale >=
+    """Shared fields of the lengthscale/variance kernels: softplus-positive raw leaves, lengthscale >
     min_lengthscale (a static float). The lengthscale may be a scalar (isotropic) or a (d,) array (ARD: one
     lengthscale per input coordinate)."""
     raw_variance: jax.Array

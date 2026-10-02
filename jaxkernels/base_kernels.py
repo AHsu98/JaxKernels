@@ -29,14 +29,16 @@ def as_float_array(x) -> jax.Array:
 
 
 def check_positive(value, name, minimum=0.0):
-    """Raise ValueError if a concrete hyperparameter value is not above `minimum` (lengthscales: >= minimum is
-    allowed, as before; positivity: > 0). Traced values are not checked."""
+    """Reject concrete values not above `minimum`; equality has no finite softplus-inverse raw coordinate.
+
+    Traced values are not checked.
+    """
     if not is_concrete(value):
         return
     v = np.asarray(value)
-    bad = np.any(v < minimum) if minimum > 0 else np.any(v <= 0)
+    bad = np.any(v <= minimum) if minimum > 0 else np.any(v <= 0)
     if bad:
-        what = f"below the minimum {minimum}" if minimum > 0 else "not positive"
+        what = f"not above the minimum {minimum}" if minimum > 0 else "not positive"
         raise ValueError(f"{name} {v} is {what}")
 
 

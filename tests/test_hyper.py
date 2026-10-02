@@ -50,6 +50,8 @@ def test_errors():
         with_hyperparameters(k, {"length": 0.3})
     with pytest.raises(ValueError):
         with_hyperparameters(k, {"lengthscale": 0.001})          # below min_lengthscale
+    with pytest.raises(ValueError, match="above its minimum"):
+        with_hyperparameters(k, {"lengthscale": k.min_lengthscale})
     with pytest.raises(ValueError):
         with_hyperparameters(k, {"variance": -1.0})
     with pytest.raises(ValueError):

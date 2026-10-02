@@ -62,7 +62,8 @@ def test_B4_traced_values_are_not_checked():
     x, y = jnp.array([0.0]), jnp.array([0.5])
     val = jax.jit(lambda ls: MaternKernel(2, ls)(x, y))(0.3)
     assert np.isfinite(float(val))
-    assert GaussianRBFKernel(0.01).lengthscale == pytest.approx(0.01)       # equal to the minimum is allowed
+    with pytest.raises(ValueError, match="above the minimum"):
+        GaussianRBFKernel(0.01)                                           # boundary has no finite raw value
 
 
 def test_B5_leaf_types_do_not_depend_on_input_types():

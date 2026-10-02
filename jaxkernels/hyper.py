@@ -147,8 +147,8 @@ def with_hyperparameters(tree, values):
         v = jnp.broadcast_to(as_float_array(v), h.shape)
         if h.positive and is_concrete(v):
             a = np.asarray(v)
-            if np.any(a <= 0) if h.minimum == 0 else np.any(a < h.minimum):
-                raise ValueError(f"{name} = {a} is below its minimum {h.minimum} (or not positive)")
+            if np.any(a <= h.minimum):
+                raise ValueError(f"{name} = {a} must be above its minimum {h.minimum}")
         leaves[h.index] = h.raw(v).astype(leaves[h.index].dtype)
     return jax.tree_util.tree_unflatten(treedef, leaves)
 
