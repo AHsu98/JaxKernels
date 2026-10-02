@@ -2,12 +2,19 @@ import jax
 import jax.numpy as jnp
 from jax.nn import softplus
 from .kerneltools import vectorize_kfunc
-from .base_kernels import softplus_inverse
+from .base_kernels import as_float_array, check_positive, softplus_inverse
 from .tree_opt import run_gradient_descent,run_jaxopt_solver
 from jaxopt import LBFGS
 
 
 SIGMA2_FLOOR = 1e-6
+
+
+def _raw_noise_variance(init_sigma2):
+    """Map a requested total variance to its raw excess above ``SIGMA2_FLOOR``."""
+    init_sigma2 = as_float_array(init_sigma2)
+    check_positive(init_sigma2, "init_sigma2", SIGMA2_FLOOR)
+    return softplus_inverse(init_sigma2 - SIGMA2_FLOOR)
 
 
 def noise_variance(params):
@@ -146,7 +153,7 @@ def fit_kernel(
         ):
     loss = loss_builder(X,y)
     init_params = {'kernel':init_kernel,
-        'transformed_sigma2':jnp.array(softplus_inverse(init_sigma2))
+        'transformed_sigma2':_raw_noise_variance(init_sigma2)
         }
 
     params,conv_history_gd = run_gradient_descent(
@@ -173,7 +180,7 @@ def fit_kernel_partialobs(
         ):
     loss = build_neg_marglike_partialobs(t,y,v)
     init_params = {'kernel':init_kernel,
-        'transformed_sigma2':jnp.array(softplus_inverse(init_sigma2))
+        'transformed_sigma2':_raw_noise_variance(init_sigma2)
         }
 
     params,conv_history_gd = run_gradient_descent(

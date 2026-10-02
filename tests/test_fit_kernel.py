@@ -1,5 +1,7 @@
 """fit_kernel objectives against direct formulas: LOO against brute-force refits, the marginal likelihood against the
 Gaussian log-density, and the noise floor that every builder shares."""
+import importlib
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -88,6 +90,19 @@ def test_all_builders_use_the_same_noise_variance():
     assert float(build_every_other_obj(X, y)(params)) == pytest.approx(np.mean((pred - np.asarray(y[1::2]))**2),
                                                                        rel=1e-6)
     assert np.isfinite(float(build_random_split_obj(X, y)(params)))
+
+
+def test_fit_functions_initialize_the_requested_total_variance(monkeypatch):
+    fitmod = importlib.import_module("jaxkernels.fit_kernel")
+    monkeypatch.setattr(fitmod, "run_gradient_descent", lambda loss, params, **kwargs: (params, []))
+    monkeypatch.setattr(fitmod, "run_jaxopt_solver", lambda solver, params, **kwargs: (params, [], None))
+    requested = 7 * SIGMA2_FLOOR
+    X, y = _data(n=4)
+    _, ordinary, _ = fitmod.fit_kernel(GaussianRBFKernel(0.5), requested, X, y, show_progress=False)
+    _, partial, _ = fitmod.fit_kernel_partialobs(
+        GaussianRBFKernel(0.5), requested, X[:, 0], y, jnp.ones((len(X), 1)), show_progress=False
+    )
+    np.testing.assert_allclose([ordinary, partial], requested, rtol=2e-15, atol=0.0)
 
 
 def test_fit_kernel_runs_and_returns_the_optimized_variance():
