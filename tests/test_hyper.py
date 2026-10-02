@@ -116,11 +116,12 @@ def test_log_coordinates_have_no_invalid_region():
     names = positive_names(k)
     z = to_log_vector(k, names)
     np.testing.assert_allclose(z, [0.0, np.log(0.3 - 0.01)], rtol=1e-14, atol=1e-15)
-    for zl in (-50.0, -5.0, 0.0, 3.0):
+    for zl in (-744.0, -50.0, -5.0, 0.0, 3.0):
         kk = from_log_vector(k, names, jnp.array([0.0, zl]))
         assert float(kk.lengthscale) == pytest.approx(0.01 + np.exp(zl), rel=1e-12)
+        assert np.isfinite(float(kk.raw_lengthscale))
         assert np.isfinite(float(kk(jnp.zeros(1), jnp.ones(1))))
-    g = jax.grad(lambda z: from_log_vector(k, names, z)(jnp.zeros(1), 0.1 * jnp.ones(1)))(jnp.array([0.0, -8.0]))
+    g = jax.grad(lambda z: from_log_vector(k, names, z)(jnp.zeros(1), 0.1 * jnp.ones(1)))(jnp.array([0.0, -744.0]))
     assert np.all(np.isfinite(np.asarray(g)))
     k0 = GaussianRBFKernel(0.3, min_lengthscale=0.0)
     np.testing.assert_allclose(to_log_vector(k0), [0.0, np.log(0.3)], rtol=1e-14, atol=1e-15)

@@ -42,6 +42,13 @@ from jax.nn import softplus
 from .base_kernels import FrozenKernel, as_float_array, is_concrete, softplus_inverse
 
 
+def _softplus_inverse_exp(z):
+    """softplus_inverse(exp(z)), using its asymptote before exp(z) can underflow."""
+    cutoff = jnp.log(jnp.finfo(z.dtype).eps)
+    safe_z = jnp.where(z < cutoff, cutoff, z)
+    return jnp.where(z < cutoff, z, softplus_inverse(jnp.exp(safe_z)))
+
+
 @dataclass(frozen=True)
 class Hyperparameter:
     name: str
@@ -218,7 +225,7 @@ def from_log_vector(tree, names, z):
         h = table[n]
         if not h.positive:
             raise ValueError(f"{n} is unconstrained: no log coordinate")
-        excess = jnp.exp(jnp.asarray(z[offset:offset + size], dtype=leaves[h.index].dtype)).reshape(h.shape)
-        leaves[h.index] = softplus_inverse(excess)          # value - minimum = exp(z), directly (no floor check)
+        coordinates = jnp.asarray(z[offset:offset + size], dtype=leaves[h.index].dtype).reshape(h.shape)
+        leaves[h.index] = _softplus_inverse_exp(coordinates)
         offset += size
     return jax.tree_util.tree_unflatten(treedef, leaves)
