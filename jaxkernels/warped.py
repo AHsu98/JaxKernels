@@ -79,8 +79,17 @@ class TanhWarp(eqx.Module):
             if x.size != 1 or self.time_axis is not None:
                 raise ValueError("TanhWarp(axis=None) is for scalar inputs (no time axis)")
             return self.warp_coordinate(x.reshape(())).reshape(x.shape)
-        t = None if self.time_axis is None else x[self.time_axis]
-        return x.at[self.axis].set(self.warp_coordinate(x[self.axis], t))
+        if x.ndim != 1 or not -x.size <= self.axis < x.size:
+            raise ValueError(f"TanhWarp axis {self.axis} is invalid for input shape {x.shape}")
+        axis = self.axis % x.size
+        if self.time_axis is not None:
+            if not -x.size <= self.time_axis < x.size or self.time_axis % x.size == axis:
+                raise ValueError(f"TanhWarp time_axis {self.time_axis} must be valid and distinct from axis {self.axis}")
+            time_axis = self.time_axis % x.size
+        else:
+            time_axis = None
+        t = None if time_axis is None else x[time_axis]
+        return x.at[axis].set(self.warp_coordinate(x[axis], t))
 
     def __str__(self):
         return f"TanhWarp(axis={self.axis}, c={fmt(self.centers)}, A={fmt(self.amplitudes)}, s={fmt(self.widths)})"

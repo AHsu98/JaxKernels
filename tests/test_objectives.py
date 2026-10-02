@@ -137,6 +137,12 @@ def test_kfold_against_brute_force():
     np.testing.assert_allclose([float(e[0]) for e in e_single], np.asarray(e_loo), rtol=1e-9, atol=1e-12)
 
 
+@pytest.mark.parametrize("fold", [np.array([len(Y)]), np.array([-1]), np.array([1, 1]), np.array([1.0])])
+def test_kfold_rejects_invalid_indices(fold):
+    with pytest.raises(ValueError, match="invalid fold indices"):
+        kfold_residuals(KERNEL, 1e-3, OBS, Y, [fold])
+
+
 def test_posterior():
     obs, y = _problem()
     noise = 1e-3

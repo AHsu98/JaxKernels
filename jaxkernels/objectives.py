@@ -164,6 +164,9 @@ def kfold_residuals(kernel, noise, obs, y, folds: Sequence, jitter=1e-10):
     out = []
     for F in folds:
         F = np.asarray(F)
+        if (F.ndim != 1 or not np.issubdtype(F.dtype, np.integer) or len(np.unique(F)) != len(F)
+                or np.any((F < 0) | (F >= len(obs)))):
+            raise ValueError(f"invalid fold indices {F}")
         B = Li[:, F]
         A = B.T @ B
         cA = jnp.linalg.cholesky(A)

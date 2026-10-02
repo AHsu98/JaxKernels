@@ -74,6 +74,9 @@ def test_heat_kernel_invalid():
         HeatKernel(0.3, -0.1)
     with pytest.raises(ValueError):
         HeatKernel(jnp.array([0.3, 0.4]), 0.1)(jnp.zeros(2), jnp.zeros(2))     # 1 space dim, 2 lengthscales
+    for diffusivity, dim in [((0.1,), 2), ((0.1, 0.2, 0.3), 2), (0.1, 0)]:
+        with pytest.raises(ValueError):
+            heat_residual_op(diffusivity, dim)
 
 
 @pytest.mark.parametrize("stream", [GaussianRBFKernel(0.4), MaternKernel(2, jnp.array([0.3, 0.5]))])
@@ -126,6 +129,12 @@ def test_indexed_matrix_kernel():
     X = jnp.asarray(np.random.default_rng(3).uniform(0, 1, (5, 2)))
     Z = jnp.concatenate([jnp.column_stack([X, jnp.zeros(5)]), jnp.column_stack([X, jnp.ones(5)])])
     np.testing.assert_allclose(gram(k, Z), K.gram(X), rtol=1e-13, atol=1e-15)
+    for component in (-1.0, 2.0):
+        evaluate = lambda c: k(jnp.r_[x, c], jnp.r_[y, 0.0])
+        with pytest.raises(eqx.EquinoxRuntimeError, match="component index out of range"):
+            evaluate(component).block_until_ready()
+        with pytest.raises(eqx.EquinoxRuntimeError, match="component index out of range"):
+            J(evaluate)(jnp.asarray(component)).block_until_ready()
 
 
 def test_tanh_warp_monotone_and_stretching():
@@ -149,6 +158,21 @@ def test_moving_front():
         assert float(xs[jnp.argmax(slope)]) == pytest.approx(0.2 + 0.5 * t, abs=1e-3)
     with pytest.raises(ValueError):
         TanhWarp(0.2, 0.05, 0.02, axis=1, velocities=0.5)
+
+
+def test_tanh_warp_axis_validation_and_negative_axes():
+    x = jnp.array([0.1, 0.4])
+    np.testing.assert_allclose(TanhWarp(0.2, 0.05, 0.02, axis=-1)(x),
+                               TanhWarp(0.2, 0.05, 0.02, axis=1)(x))
+    np.testing.assert_allclose(TanhWarp(0.2, 0.05, 0.02, axis=-1, velocities=0.5, time_axis=-2)(x),
+                               TanhWarp(0.2, 0.05, 0.02, axis=1, velocities=0.5, time_axis=0)(x))
+    for warp in [TanhWarp(0.2, 0.05, 0.02, axis=2),
+                 TanhWarp(0.2, 0.05, 0.02, axis=0, velocities=0.5, time_axis=-3),
+                 TanhWarp(0.2, 0.05, 0.02, axis=-1, velocities=0.5, time_axis=1)]:
+        with pytest.raises(ValueError):
+            warp(x)
+    with pytest.raises(ValueError):
+        TanhWarp(0.2, 0.05, 0.02, axis=0)(jnp.ones((2, 2)))
 
 
 def test_warped_kernel_is_base_on_warped_points():

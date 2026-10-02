@@ -93,6 +93,10 @@ def heat_residual_op(diffusivity, dim):
     """The functional u -> u_t - sum_i kappa_i u_(x_i x_i) for points (t, x_1..x_dim) and a concrete diffusivity
     (a float, or a tuple of dim floats); cached, so equal arguments give the same function. For a diffusivity that
     is being traced (a hyperparameter), write the functional inside the traced function instead."""
+    if not isinstance(dim, int) or dim < 1:
+        raise ValueError(f"dim must be a positive integer, got {dim!r}")
+    if isinstance(diffusivity, tuple) and len(diffusivity) != dim:
+        raise ValueError(f"diffusivity has {len(diffusivity)} entries for dim={dim}")
     kappas = (float(diffusivity),) * dim if not isinstance(diffusivity, tuple) else tuple(map(float, diffusivity))
     dt = partial_op(0)
     dxx = [partial_op(i + 1, i + 1) for i in range(dim)]
@@ -156,6 +160,8 @@ class IndexedMatrixKernel(Kernel):
         z1, z2 = jnp.asarray(z1), jnp.asarray(z2)
         i = jnp.round(jax.lax.stop_gradient(z1[-1])).astype(int)
         j = jnp.round(jax.lax.stop_gradient(z2[-1])).astype(int)
+        i = eqx.error_if(i, (i < 0) | (i >= self.matrix_kernel.output_dim), "component index out of range")
+        j = eqx.error_if(j, (j < 0) | (j >= self.matrix_kernel.output_dim), "component index out of range")
         return self.matrix_kernel(z1[:-1], z2[:-1])[i, j]
 
     def __str__(self):
