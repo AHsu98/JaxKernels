@@ -71,9 +71,6 @@ class _PeriodicBase(Kernel):
     def period(self):
         return softplus(self.raw_period)
 
-    def _s(self, x, y):
-        return chordal_sqdist(x, y, self.period, self.lengthscale)
-
     def scale(self, c):
         return eqx.tree_at(lambda k: k.raw_variance, self, softplus_inverse(c * softplus(self.raw_variance)))
 
@@ -90,7 +87,7 @@ class PeriodicKernel(_PeriodicBase):
         self._init_scales(period, lengthscale, variance, min_lengthscale)
 
     def __call__(self, x, y):
-        return self.variance * jnp.exp(-0.5 * self._s(x, y))
+        return self.variance * jnp.exp(-0.5 * chordal_sqdist(x, y, self.period, self.lengthscale))
 
     def __str__(self):
         return f"{fmt(self.variance)}Periodic(P={fmt(self.period)},{fmt(self.lengthscale)})"
@@ -111,7 +108,7 @@ class PeriodicMaternKernel(_PeriodicBase):
         self._init_scales(period, lengthscale, variance, min_lengthscale)
 
     def __call__(self, x, y):
-        return self.variance * matern_phi(self.p_order, 0, self._s(x, y))
+        return self.variance * matern_phi(self.p_order, 0, chordal_sqdist(x, y, self.period, self.lengthscale))
 
     def __str__(self):
         return f"{fmt(self.variance)}PeriodicMatern({self.p_order},P={fmt(self.period)},{fmt(self.lengthscale)})"

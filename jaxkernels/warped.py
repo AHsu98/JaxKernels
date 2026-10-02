@@ -22,10 +22,8 @@ not only the positive ones (hyper.to_log_vector covers only those).
 
 Degenerate direction: for A_j >> s_j the identity part is negligible and only the ratio (base lengthscale) / A_j
 matters. If the data are exactly a smooth function of tanh((x - c)/s) (e.g. a pure tanh front), a marginal-likelihood
-fit drifts along that ridge to A, l -> infinity (seen: A = 8.8e7, l = 3.3e7, with good predictions). Bound A (a
-prior or a box) if the values matter. Measured (func-keql experiments/hyper/kernels/demos.py C): front
-erf((x - 0.52)/0.04) + 0.3 sin 3x, 40 samples, 25 inducing points: nrmse 1.0e-3 warped vs 4.8e-2 RBF, fitted center
-0.513.
+fit can drift along that ridge to A, l -> infinity while predictions remain good. Bound A (a prior or a box) if
+the values matter.
 """
 import equinox as eqx
 import jax
@@ -50,7 +48,7 @@ class TanhWarp(eqx.Module):
         amplitudes = jnp.broadcast_to(as_float_array(amplitudes), centers.shape)
         widths = jnp.broadcast_to(as_float_array(widths), centers.shape)
         check_positive(amplitudes, "amplitudes")
-        check_positive(widths, "widths", min_widths) if min_widths > 0 else check_positive(widths, "widths")
+        check_positive(widths, "widths", min_widths)
         if (velocities is None) != (time_axis is None):
             raise ValueError("give both velocities and time_axis, or neither")
         self.centers = centers
@@ -85,10 +83,9 @@ class TanhWarp(eqx.Module):
         if self.time_axis is not None:
             if not -x.size <= self.time_axis < x.size or self.time_axis % x.size == axis:
                 raise ValueError(f"TanhWarp time_axis {self.time_axis} must be valid and distinct from axis {self.axis}")
-            time_axis = self.time_axis % x.size
+            t = x[self.time_axis % x.size]
         else:
-            time_axis = None
-        t = None if time_axis is None else x[time_axis]
+            t = None
         return x.at[axis].set(self.warp_coordinate(x[axis], t))
 
     def __str__(self):

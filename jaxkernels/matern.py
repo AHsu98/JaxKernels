@@ -22,14 +22,12 @@ differentiable at x = y: by Faa di Bruno, a derivative of total order k of phi(s
 phi^(m)(s) * (products of derivatives of s); s is quadratic and grad s = 0 at x = y, so at x = y only m = k/2 <= p
 survives, and near x = y the terms with m > p are O(r^(2p + 1 - k)). So phi^(m)(0) := 0 for m > p (it is always
 multiplied by an exact zero), and for 0 < z < Z_MIN the singular branch is evaluated at Z_MIN (the affected
-terms are below Z_MIN^(2p + 1 - k) <= 1e-15 relative), which avoids overflow for extremely close, distinct points.
+terms are below the numerical precision threshold), which avoids overflow for extremely close, distinct points.
 
-Derivatives of order > 2p at x = y do not exist (the true values are infinite); they come out finite and wrong
-(e.g. for p = 1, d^2/dx^2 d^2/dy^2 k(x, x) = 0 instead of +infinity; the sympy version gave a negative value,
--27 in the func-keql audit a10) and must not be
-used: a basis or residual functional of order m needs p >= m. There is no way to make only the invalid orders fail
-here: the placeholder phi^(m)(0) is multiplied by an exact zero in every valid derivative (a NaN placeholder would
-turn those into NaN), and by a nonzero factor only in invalid ones.
+Derivatives of order > 2p at x = y do not exist (the true values are infinite); they come out finite and wrong and
+must not be used: a basis or residual functional of order m needs p >= m. There is no way to make only the invalid
+orders fail here: the placeholder phi^(m)(0) is multiplied by an exact zero in every valid derivative (a NaN
+placeholder would turn those into NaN), and by a nonzero factor only in invalid ones.
 """
 import math
 from fractions import Fraction
@@ -43,7 +41,7 @@ Z_MIN = 1e-15
 
 @lru_cache(maxsize=None)
 def _phi_coefficients(p, m):
-    """(scale, exponents, coefficients): phi_p^(m)(s) = scale * exp(-z) * sum_j coef_j * z**exp_j.
+    """(scale, leading power, coefficients) for phi_p^(m)(s) as an exponential times a polynomial in z.
 
     Exact rational arithmetic, then floats. Uses K_(n+1/2)(z) = sqrt(pi/(2z)) e^-z sum_j a_nj (2z)^-j,
     a_nj = (n+j)! / (j! (n-j)!), and c_nu sqrt(pi/2) = 2^p p! / (2p)! for nu = p + 1/2.
@@ -52,16 +50,15 @@ def _phi_coefficients(p, m):
     scale = Fraction(2**p * math.factorial(p), math.factorial(2 * p)) * (-nu) ** m
     k = p - m                                # order nu - m = k + 1/2
     n = k if k >= 0 else -k - 1              # K_(n + 1/2)
-    coefs, exps = [], []
+    coefs = []
     for j in range(n + 1):
         a = Fraction(math.factorial(n + j), math.factorial(j) * math.factorial(n - j))
         coefs.append(a / 2**j)
-        exps.append(k - j)                   # z^(mu - 1/2 - j), mu - 1/2 = k
-    return float(scale), tuple(exps), tuple(float(c) for c in coefs)
+    return float(scale), k, tuple(float(c) for c in coefs)
 
 
 def _phi_value(p, m, s):
-    scale, exps, coefs = _phi_coefficients(p, m)
+    scale, leading_power, coefs = _phi_coefficients(p, m)
     nu = p + 0.5
     z = jnp.sqrt(2.0 * nu * s)
     if m <= p:                               # polynomial in z, exponents k, k-1, ..., 0 (k = p - m)
@@ -74,7 +71,7 @@ def _phi_value(p, m, s):
     poly = coefs[-1] * jnp.ones_like(zs)
     for c in coefs[-2::-1]:                  # Horner in 1/z
         poly = poly * inv + c
-    val = scale * jnp.exp(-zs) * poly * inv ** (-exps[0])
+    val = scale * jnp.exp(-zs) * poly * inv ** (-leading_power)
     return jnp.where(s > 0, val, 0.0)
 
 
@@ -98,16 +95,11 @@ def matern_derivative_at_zero(p, m):
     """phi_p^(m)(0) for m <= p (Taylor coefficients: phi_p(s) = sum_m phi_p^(m)(0) s^m / m! + O(s^(p + 1/2)))."""
     if m > p:
         raise ValueError(f"phi_p^(m)(0) is infinite for m > p (p={p}, m={m})")
-    scale, exps, coefs = _phi_coefficients(p, m)
+    scale, _, coefs = _phi_coefficients(p, m)
     return scale * coefs[-1]                 # the z^0 coefficient (exponent k - n = 0 for m <= p)
 
 
-# --------------------------------------------------------------------------------------------------------------
-# Legacy sympy construction: the implementation of ScalarMaternKernel up to JaxKernels 2b015b7. The package no
-# longer uses it; kept for comparison (sympy is imported only when it is called). It rebuilt the core on every
-# call (0.03-0.25 s) and the result was stored as a static field, so every kernel instance was new structure;
-# for p = 0 its JVP rule indexed an empty list (not differentiable at all).
-# --------------------------------------------------------------------------------------------------------------
+# Legacy SymPy implementation used through JaxKernels 2b015b7; retained for comparison and imported lazily.
 def make_custom_jvp_function(f, fprime):
     """Return a function with custom JVP defined by (fprime)."""
     @jax.custom_jvp
@@ -127,26 +119,24 @@ def make_sympy_callable(expr):
 
     def inner(d):
         return sympy2jax.SymbolicModule(expr)(d=d)
+
     return inner
 
 
 def get_sympy_matern(p):
     import sympy as sym
     from sympy import factorial
+
     d2 = sym.symbols('d2', positive=True, real=True)
     exp_multiplier = -sym.sqrt(2 * p + 1)
     coefficients = [
         (factorial(p) / factorial(2 * p)) * (factorial(p + i) / (factorial(i) * factorial(p - i)))
         * (sym.sqrt(8 * p + 4))**(p - i)
         for i in range(p + 1)]
-    powers = list(range(p, -1, -1))
-    matern = (
-        sum([
-            c * sym.sqrt((d2**power)) for c, power in zip(coefficients, powers)
-        ]
-        )
-        * sym.exp(exp_multiplier * sym.sqrt(d2))
-    )
+    matern = sum(
+        c * sym.sqrt(d2**power)
+        for c, power in zip(coefficients, range(p, -1, -1))
+    ) * sym.exp(exp_multiplier * sym.sqrt(d2))
     return d2, matern
 
 
@@ -169,7 +159,7 @@ def build_matern_core(p):
         return sym.powdenest(sym.expand(expr.diff(d).subs(subrule))).subs(subrule)
 
     derivatives = [compute_next_derivative(maternd)]
-    for k in range(2 * p - 1):
+    for _ in range(2 * p - 1):
         derivatives.append(compute_next_derivative(derivatives[-1]))
 
     jax_derivatives = [make_sympy_callable(f) for f in derivatives]

@@ -75,14 +75,13 @@ class HeatKernel(Kernel):
         if z1.ndim != 1 or z1.shape[0] < 2 or z1.shape != z2.shape:
             raise ValueError(f"HeatKernel takes points (t, x_1, ..., x_d), got shapes {z1.shape}, {z2.shape}")
         d = z1.shape[0] - 1
-        ls, kappa = self.lengthscale, self.diffusivity
-        for name, v in (("lengthscale", ls), ("diffusivity", kappa)):
-            if jnp.ndim(v) == 1 and jnp.shape(v)[0] != d:
-                raise ValueError(f"{name} of shape {jnp.shape(v)} for {d} space dimensions")
-        ls2 = jnp.broadcast_to(ls**2, (d,))
-        v = ls2 + 2.0 * jnp.broadcast_to(kappa, (d,)) * (z1[0] + z2[0])
+        for name, scale in (("lengthscale", self.lengthscale), ("diffusivity", self.diffusivity)):
+            if scale.ndim == 1 and scale.shape[0] != d:
+                raise ValueError(f"{name} of shape {scale.shape} for {d} space dimensions")
+        ls2 = jnp.broadcast_to(self.lengthscale**2, (d,))
+        spread = ls2 + 2.0 * jnp.broadcast_to(self.diffusivity, (d,)) * (z1[0] + z2[0])
         diff = z1[1:] - z2[1:]
-        return self.variance * jnp.prod(jnp.sqrt(ls2 / v)) * jnp.exp(-0.5 * jnp.sum(diff**2 / v))
+        return self.variance * jnp.prod(jnp.sqrt(ls2 / spread)) * jnp.exp(-0.5 * jnp.sum(diff**2 / spread))
 
     def __str__(self):
         return f"{fmt(self.variance)}Heat({fmt(self.lengthscale)},kappa={fmt(self.diffusivity)})"
@@ -119,9 +118,9 @@ class MatrixKernel(eqx.Module):
     def gram(self, X, Y=None):
         """[K(x_i, y_j)] as an (m n_X, m n_Y) matrix ordered component-major: rows (c, i) -> c * n_X + i."""
         Y = X if Y is None else Y
-        B = jax.vmap(jax.vmap(self, (None, 0)), (0, None))(X, Y)          # (nX, nY, m, m)
+        blocks = jax.vmap(jax.vmap(self, (None, 0)), (0, None))(X, Y)     # (nX, nY, m, m)
         m = self.output_dim
-        return jnp.transpose(B, (2, 0, 3, 1)).reshape(m * X.shape[0], m * Y.shape[0])
+        return jnp.transpose(blocks, (2, 0, 3, 1)).reshape(m * X.shape[0], m * Y.shape[0])
 
 
 class DivergenceFreeKernel(MatrixKernel):
@@ -144,8 +143,8 @@ class DivergenceFreeKernel(MatrixKernel):
     def __call__(self, x, y):
         if jnp.shape(x) != (2,) or jnp.shape(y) != (2,):
             raise ValueError(f"DivergenceFreeKernel takes points in R^2, got {jnp.shape(x)}, {jnp.shape(y)}")
-        H = jax.jacfwd(jax.grad(self.stream_kernel, 0), 1)(x, y)          # H[i, j] = d_xi d_yj k
-        return jnp.array([[H[1, 1], -H[1, 0]], [-H[0, 1], H[0, 0]]])
+        mixed = jax.jacfwd(jax.grad(self.stream_kernel, 0), 1)(x, y)     # mixed[i, j] = d_xi d_yj k
+        return jnp.array([[mixed[1, 1], -mixed[1, 0]], [-mixed[0, 1], mixed[0, 0]]])
 
     def __str__(self):
         return f"DivFree({self.stream_kernel})"
