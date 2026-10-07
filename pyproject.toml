@@ -13,8 +13,6 @@ dependencies = [
     "jaxlib",
     "equinox",
     "jaxopt",
-    "sympy",
-    "sympy2jax",
     "tqdm"
 ]
 

@@ -2,28 +2,24 @@
 
     WarpedKernel(kernel, warp):  k_w(x, y) = kernel(warp(x), warp(y))
 
-A warp is an equinox module (its array fields are hyperparameters, unlike TransformedKernel's static transform). If
-the warp is injective, k_w is positive definite whenever the kernel is. Monotone coordinate warps are injective.
+A warp is an equinox module whose array fields are hyperparameters (unlike TransformedKernel's static transform). If
+the warp is injective, k_w is positive definite whenever the kernel is.
 
 TanhWarp stretches one coordinate around m fronts:
 
     w(x)_a = x_a + sum_j A_j tanh((x_a - c_j - v_j x_t) / s_j)          (other coordinates unchanged)
 
-with amplitudes A_j >= 0 and widths s_j > 0 (softplus leaves), centers c_j and optional velocities v_j (the fronts
-move along a time coordinate t = x[time_axis]; unconstrained leaves). dw_a/dx_a = 1 + sum_j (A_j / s_j)
-sech^2(...) >= 1: strictly increasing, so injective, and it only stretches: with a stationary base kernel of
-lengthscale l, the local lengthscale near front j is about l / (1 + A_j / s_j) (finer), and l far from the fronts.
-Every derivative exists (analytic warp), so the smoothness of k_w is that of the base kernel.
+with amplitudes A_j > 0 and widths s_j > 0 (softplus leaves), and unconstrained centers c_j and optional velocities
+v_j (fronts moving along the time coordinate t = x[time_axis]). Since dw_a/dx_a >= 1, the warp is strictly increasing
+and only stretches: near front j the local lengthscale of a stationary base kernel with lengthscale l is about
+l / (1 + A_j / s_j). The warp is analytic, so k_w is as smooth as the base kernel.
 
-Use: fronts and shocks (a Burgers shock at a known or learnable position, possibly moving with speed v), boundary
-layers. Initialise A_j small (A_j -> 0 is the identity warp) and widths near the expected front width. Centers and
-velocities are unconstrained leaves: optimise all trainable leaves (hyper.hyperparameter_filter + eqx.partition),
-not only the positive ones (hyper.to_log_vector covers only those).
+Typical uses are fronts, shocks and boundary layers. Initialise A_j small (A_j -> 0 is the identity) and s_j near the
+expected front width. hyper.to_log_vector covers only positive leaves, so optimise centers and velocities through
+hyper.hyperparameter_filter and eqx.partition.
 
-Degenerate direction: for A_j >> s_j the identity part is negligible and only the ratio (base lengthscale) / A_j
-matters. If the data are exactly a smooth function of tanh((x - c)/s) (e.g. a pure tanh front), a marginal-likelihood
-fit can drift along that ridge to A, l -> infinity while predictions remain good. Bound A (a prior or a box) if
-the values matter.
+For A_j >> s_j only the ratio (base lengthscale) / A_j matters, and a marginal-likelihood fit can drift to large A
+and l; bound A if its value matters.
 """
 import equinox as eqx
 import jax

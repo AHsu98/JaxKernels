@@ -7,56 +7,11 @@ from .base_kernels import (Kernel, softplus_inverse, is_concrete, as_float_array
                            fmt)
 
 
-class TranslationInvariantKernel(Kernel):
-    """
-    Not used for anything yet, but maybe unifies some of the other kernels
-    Kernels defined by k(x,y) = var * h( (x-y)/ls )
-    """
-    core_func:callable
-    raw_variance: jax.Array
-    raw_lengthscale: jax.Array
-
-    min_lengthscale: jax.Array = eqx.field(static=True)
-    fix_variance:bool = eqx.field(static=True)
-    fix_lengthscale:bool = eqx.field(static=True)
-
-    def __init__(
-            self,
-            core_func,
-            lengthscale,
-            variance,
-            min_lengthscale,
-            fix_variance = False,
-            fix_lengthscale = False,
-            ):
-        self.raw_variance = softplus_inverse(jnp.array(variance))
-        if is_concrete(lengthscale) and lengthscale <= min_lengthscale:
-            raise ValueError("Initial lengthscale must be above minimum")
-        self.raw_lengthscale = softplus_inverse(jnp.array(lengthscale) - min_lengthscale)
-        self.min_lengthscale = min_lengthscale
-        self.fix_variance = fix_variance
-        self.fix_lengthscale = fix_lengthscale
-        self.core_func = core_func
-
-    def __call__(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
-        var = softplus(self.raw_variance)
-        if self.fix_variance is True:
-            var = jax.lax.stop_gradient(var)
-
-        ls = softplus(self.raw_lengthscale) + self.min_lengthscale
-        if self.fix_lengthscale is True:
-            ls = jax.lax.stop_gradient(ls)
-
-        scaled_diff = (y-x)/ls
-        return var*self.core_func(scaled_diff)
-
-
 class _StationaryKernel(Kernel):
-    """Shared fields of the lengthscale/variance kernels: softplus-positive raw leaves, lengthscale >
-    min_lengthscale (a static float). The lengthscale may be a scalar (isotropic) or a (d,) array (diagonally
-    anisotropic: one lengthscale per input coordinate, i.e. the isotropic kernel of x / lengthscale taken
-    coordinatewise). This is called ARD in the GP literature when the lengthscales are fit; the kernel itself only
-    scales."""
+    """Base for kernels with a variance and a lengthscale, stored as softplus-positive raw leaves (lengthscale above
+    the static min_lengthscale). The lengthscale is a scalar (isotropic) or a (d,) array (diagonally anisotropic:
+    one lengthscale per input coordinate). The GP literature calls the latter ARD when the lengthscales are fit;
+    the kernel itself only scales."""
     raw_variance: jax.Array
     raw_lengthscale: jax.Array
     min_lengthscale: float = eqx.field(static=True)
@@ -92,10 +47,10 @@ class MaternKernel(_StationaryKernel):
     4.16): p = 0 exponential, 1: (1 + z) e^-z, 2: (1 + z + z^2/3) e^-z. lengthscale: scalar (isotropic), or (d,)
     (diagonally anisotropic).
 
-    Smoothness: k is 2p times differentiable at x = y (and analytic elsewhere), so an operator of order m applied
-    to both arguments needs 2m <= 2p: the Laplacian needs p >= 2, third derivatives p >= 3. Derivatives of every
-    order up to 2p are exact at x = y through a closed-form custom JVP (see matern.py); higher ones are not
-    defined there. The RKHS on R^d is norm-equivalent to the Sobolev space H^(nu + d/2).
+    Smoothness: k is 2p times differentiable at x = y and analytic elsewhere, so an operator of order m applied to
+    both arguments needs p >= m (the Laplacian needs p >= 2). Derivatives up to order 2p are exact at x = y
+    (matern.py); higher orders do not exist there. The RKHS on R^d is norm-equivalent to the Sobolev space
+    H^(nu + d/2).
     """
     p_order: int = eqx.field(static=True)
 
@@ -129,11 +84,8 @@ class ScalarMaternKernel(MaternKernel):
         lengthscale > 0
     Internally stored as "raw_" after applying softplus_inverse.
 
-    The Matérn kernel of MaternKernel restricted to scalar inputs (shape () or (1,)); for points in R^d use
-    MaternKernel (radial, optionally diagonally anisotropic) or TensorProductKernel of ScalarMaternKernels
-    (separable). Since ah-hyper: closed form (no sympy), the same structure for every instance of a given p (jit
-    does not retrace), differentiable for p = 0, and scalar output for shape-(1,) inputs; values agree with the
-    former sympy implementation to 3.3e-16 and derivatives up to order 2p to 3.4e-13 relative.
+    MaternKernel restricted to scalar inputs (shape () or (1,)). For points in R^d use MaternKernel (radial) or a
+    TensorProductKernel of ScalarMaternKernels (separable).
     """
 
     def __call__(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
@@ -144,8 +96,7 @@ class ScalarMaternKernel(MaternKernel):
 
     @property
     def core_matern(self):
-        """The Matérn profile as a function of the scaled difference d = (y - x) / lengthscale (the former
-        static field of the same name)."""
+        """The Matérn profile as a function of the scaled difference d = (y - x) / lengthscale."""
         p = self.p_order
         return lambda d: matern_phi(p, 0, d * d)
 
@@ -168,7 +119,7 @@ class GaussianRBFKernel(_StationaryKernel):
     def __call__(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
         var = softplus(self.raw_variance)
         ls = softplus(self.raw_lengthscale)+self.min_lengthscale
-        if jnp.ndim(ls) == 0:           # the original expression: bitwise identical values for scalar lengthscales
+        if jnp.ndim(ls) == 0:
             sqdist = jnp.sum((x - y) ** 2)
             return var * jnp.exp(-0.5 * sqdist / (ls**2))
         return var * jnp.exp(-0.5 * scaled_sqdist(x, y, ls))
@@ -205,7 +156,7 @@ class RationalQuadraticKernel(_StationaryKernel):
         var = softplus(self.raw_variance)
         ls = softplus(self.raw_lengthscale) + self.min_lengthscale
         a = softplus(self.raw_alpha)
-        if jnp.ndim(ls) == 0:           # the original expression: bitwise identical values for scalar lengthscales
+        if jnp.ndim(ls) == 0:
             sqdist = jnp.sum((x - y) ** 2)
             factor = 1.0 + (sqdist / (2.0 * a * ls**2))
         else:

@@ -7,10 +7,7 @@ from jax.nn import softplus
 
 
 def softplus_inverse(y: jnp.ndarray) -> jnp.ndarray:
-    """Inverse of softplus: log(exp(y) - 1) = y + log(-expm1(-y)).
-
-    expm1 keeps full relative precision for small y (the former y + log1p(-exp(-y)) lost it: the round trip
-    softplus(softplus_inverse(y)) was off by 2e-5 relative at y = 1e-12 and 1e-9 at 1e-8)."""
+    """Inverse of softplus: log(exp(y) - 1) = y + log(-expm1(-y)), accurate for small y."""
     return y + jnp.log(-jnp.expm1(-y))
 
 
@@ -20,11 +17,10 @@ def is_concrete(x) -> bool:
 
 
 def as_float_array(x) -> jax.Array:
-    """x as a strongly typed array of the default float dtype (float64 when x64 is enabled).
+    """x as a strongly typed array of the default float dtype.
 
-    Hyperparameter leaves are stored this way so that kernels built from Python floats, NumPy scalars or JAX
-    arrays are the same pytree for jit: dtype and weak type are part of the cache key, and a Python float gives a
-    weakly typed array while a JAX float64 scalar does not, so mixing them compiled twice."""
+    Hyperparameter leaves are stored this way so kernels built from Python floats, NumPy scalars or JAX arrays
+    have the same dtype and weak type, and so share one jit cache entry."""
     return jnp.asarray(x, dtype=jnp.result_type(float))
 
 
@@ -149,9 +145,8 @@ class TransformedKernel(Kernel):
     composition of a kernel with another
     fixed function
 
-    The transform is structure (a static field): use a module-level function, not a lambda or closure created per
-    build (each new function object is new structure, so jit recompiles). For a transform with learnable
-    parameters use WarpedKernel.
+    The transform is a static field: pass a module-level function, not a lambda created per call, or jit
+    recompiles. For a learnable transform use WarpedKernel.
     """
     kernel: Kernel
     transform: callable = eqx.field(static=True)
@@ -218,9 +213,7 @@ class ProductKernel(Kernel):
 
     def __mul__(self, other: "Kernel"):
         """
-        (k1*k2)*k3: the left side is a ProductKernel, so merge into one flat ProductKernel. (Until 2b015b7 this
-        method was named __prod__, which Python never calls, so products nested; and it merged a SumKernel's
-        components as factors.)
+        If we do (k1*k2)*k3, the left side is a ProductKernel, so merge into one flat ProductKernel.
         """
         if isinstance(other, ProductKernel):
             return ProductKernel(*(list(self.kernels) + list(other.kernels)))
@@ -353,20 +346,16 @@ class TensorProductKernel(Kernel):
 
 class WeightedSumKernel(Kernel):
     """
-    k(x, y) = sum_j w_j k_j(x, y) with learnable weights: continuous selection among kernel families.
+    k(x, y) = sum_j w_j k_j(x, y) with learnable weights; the components must accept the same inputs.
 
-    weights: w_j = softplus(raw_weights_j) (each component's own variance), or, with normalize=True,
-    w_j = softplus(raw_j) / sum_i softplus(raw_i) (a convex combination: the total variance stays that of the
-    components, which fits func_graph_comp's convention of unit kernel variances with the prior scale in the reg
-    weight). Build the components with variance 1 and freeze their variances (hyper.hyperparameter_filter(k,
-    exclude="kernels*variance")), or the weights and component variances are one direction.
+    weights: w_j = softplus(raw_weights_j), or with normalize=True the convex combination
+    w_j = softplus(raw_j) / sum_i softplus(raw_i), which keeps the total variance that of the components. Give the
+    components variance 1 and freeze their variances (hyper.hyperparameter_filter(k, exclude="kernels*variance")),
+    or the weights and component variances are redundant.
 
-    Selection: fit the weights by marginal likelihood or CV (jaxkernels.objectives); a family whose weight goes
-    to ~0 is deselected. Components must accept the same inputs. With free lengthscales per component the mixture
-    is also a multi-scale model, and then the weights are not family labels: on a Matérn-1/2 sample path (300 points)
-    the fit put 0.65 on a long-lengthscale RBF (the trend) and 0.35 on the Matérn-1/2, although single-family
-    marginal likelihoods rank Matérn-1/2 first by 80 nats (func-keql experiments/hyper/kernels/demos.py D). For
-    family selection, give the components one shared lengthscale, or compare single-family fits.
+    Fitting the weights (jaxkernels.objectives) selects among kernel families: a weight near 0 drops its component.
+    With free per-component lengthscales the mixture can act as a multi-scale model instead, so the weights need
+    not identify one family; for family selection, share one lengthscale or compare single-family fits.
     """
     kernels: tuple
     raw_weights: jax.Array

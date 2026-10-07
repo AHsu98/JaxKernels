@@ -1,4 +1,4 @@
-"""Periodic kernels: periodicity, closed forms (GPML exp-sine-squared, func-keql's periodic transform), Taylor values
+"""Periodic kernels: periodicity, closed forms (GPML exp-sine-squared, RBF of the circle embedding), Taylor values
 of the periodic Matérn at coincident points and at the periodic images."""
 import math
 
@@ -12,7 +12,7 @@ from jaxkernels import (GaussianRBFKernel, PeriodicKernel, PeriodicMaternKernel,
 from _helpers import gram
 
 
-def periodic_transform(x, period=1.0):          # examples/rd_common.py in func-keql
+def periodic_transform(x, period=1.0):
     return jnp.hstack([jnp.sin(x * (2 * jnp.pi / period)), jnp.cos(x * (2 * jnp.pi / period))]) / (period * 2 * jnp.pi)
 
 

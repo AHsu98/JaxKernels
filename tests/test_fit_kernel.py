@@ -79,7 +79,7 @@ def test_all_builders_use_the_same_noise_variance():
     """Every objective sees softplus(raw) + SIGMA2_FLOOR, which is what fit_kernel returns."""
     X, y = _data()
     k = GaussianRBFKernel(0.3)
-    s2 = 2e-6                                           # close to the floor, where the old mismatch mattered
+    s2 = 2e-6                                           # close to the floor
     params = _params(k, s2)
     assert float(noise_variance(params)) == pytest.approx(s2, rel=1e-12)
     e = brute_force_loo(k, X, y, s2)

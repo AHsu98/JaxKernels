@@ -25,9 +25,8 @@ differentiable per argument for K to exist (Matérn p >= 1; derivative observati
 
 IndexedMatrixKernel: a matrix-valued kernel as a scalar kernel on (x, c), where the last input coordinate c in
 {0, ..., m-1} picks the output component: k((x, c), (y, c')) = K(x, y)[c, c'] (positive definite on R^d x {0..m-1}
-iff K is). Scalar-kernel machinery (func_graph_comp's InducingPointRKHS, objectives.Observations) can then represent
-vector fields: inducing points (x_j, c) for each component c; derivative functionals act on the x coordinates
-(their derivative in c is 0).
+iff K is). Scalar-kernel machinery such as objectives.Observations can then represent vector fields, with points
+(x_j, c) for each component c; derivative functionals act on the x coordinates (the derivative in c is 0).
 """
 from functools import lru_cache
 

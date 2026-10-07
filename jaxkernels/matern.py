@@ -1,12 +1,10 @@
-"""Half-integer Matérn kernels, as functions of the squared scaled distance.
+"""Half-integer Matérn kernels as functions of the squared scaled distance.
 
     k(x, y) = variance * phi_p(s),   s = sum_i ((x_i - y_i) / lengthscale_i)^2,   nu = p + 1/2.
 
-Why s and not r = sqrt(s): s is a polynomial in x, y and the lengthscales, so every derivative of k (in x, y, or
-the hyperparameters) is the chain rule applied to phi_p and a polynomial. phi_p has closed-form derivatives of
-every order (below); `matern_phi` gives them to JAX as a custom JVP rule, recursively, so jax.grad / jax.hessian /
-jacfwd nested to any depth give exact derivatives, including at x = y. (Autodiff through r = sqrt(s) at s = 0
-gives NaN or one-sided values instead.)
+s is a polynomial in x, y and 1 / lengthscale, so every derivative of k is the chain rule applied to phi_p and a
+polynomial. `matern_phi` supplies the closed-form derivatives of phi_p as a recursive custom JVP, so nested autodiff
+to any depth is exact, including at x = y, where autodiff through r = sqrt(s) gives NaN.
 
 With z = sqrt(2 nu s) and g_mu(z) = z^mu K_mu(z) (K the modified Bessel function of the second kind),
 
@@ -16,18 +14,18 @@ and d/dw g_mu = -g_(mu - 1) / 2 for w = z^2 = 2 nu s, so
 
     phi_p^(m)(s) = c_nu (-nu)^m g_(nu - m)(z).
 
-For mu = n + 1/2 (n >= 0), g_mu is exp(-z) times a polynomial of degree n in z: finite at z = 0. For m > p the
-order nu - m is negative and g is singular at z = 0 (like z^(2(p - m) + 1)). The kernel is 2p times
-differentiable at x = y: by Faa di Bruno, a derivative of total order k of phi(s(x, y)) is a sum of terms
-phi^(m)(s) * (products of derivatives of s); s is quadratic and grad s = 0 at x = y, so at x = y only m = k/2 <= p
-survives, and near x = y the terms with m > p are O(r^(2p + 1 - k)). So phi^(m)(0) := 0 for m > p (it is always
-multiplied by an exact zero), and for 0 < z < Z_MIN the singular branch is evaluated at Z_MIN (the affected
-terms are below the numerical precision threshold), which avoids overflow for extremely close, distinct points.
+For mu = n + 1/2, g_mu is exp(-z) times a sum of powers of z with positive coefficients, so phi_p^(m) is evaluated
+without cancellation. For m > p the order nu - m is negative and g is singular at z = 0, like z^(2(p - m) + 1).
 
-Derivatives of order > 2p at x = y do not exist (the true values are infinite); they come out finite and wrong and
-must not be used: a basis or residual functional of order m needs p >= m. There is no way to make only the invalid
-orders fail here: the placeholder phi^(m)(0) is multiplied by an exact zero in every valid derivative (a NaN
-placeholder would turn those into NaN), and by a nonzero factor only in invalid ones.
+Near x = y: by Faa di Bruno, a derivative of total order k of phi(s(x, y)) is a sum of terms phi^(m)(s) times
+products of derivatives of s. Since grad s = 0 at x = y, every term with m > k/2 has an exactly zero factor there,
+and near x = y the terms with m > p are O(r^(2p + 1 - k)). So phi^(m)(0) := 0 for m > p, and for 0 < z < Z_MIN the
+singular branch is evaluated at Z_MIN (the affected terms are below rounding error), which avoids overflow for
+distinct points that are extremely close.
+
+The kernel is therefore 2p times differentiable at x = y. Higher derivatives do not exist there and come out finite
+but wrong (a NaN placeholder would also turn the valid orders into NaN), so a functional of order m applied to both
+arguments needs p >= m.
 """
 import math
 from fractions import Fraction
@@ -97,87 +95,3 @@ def matern_derivative_at_zero(p, m):
         raise ValueError(f"phi_p^(m)(0) is infinite for m > p (p={p}, m={m})")
     scale, _, coefs = _phi_coefficients(p, m)
     return scale * coefs[-1]                 # the z^0 coefficient (exponent k - n = 0 for m <= p)
-
-
-# Legacy SymPy implementation used through JaxKernels 2b015b7; retained for comparison and imported lazily.
-def make_custom_jvp_function(f, fprime):
-    """Return a function with custom JVP defined by (fprime)."""
-    @jax.custom_jvp
-    def f_wrapped(x):
-        return f(x)
-
-    @f_wrapped.defjvp
-    def f_jvp(primals, tangents):
-        (x,) = primals
-        (x_dot,) = tangents
-        return f(x), fprime(x) * x_dot
-    return f_wrapped
-
-
-def make_sympy_callable(expr):
-    import sympy2jax
-
-    def inner(d):
-        return sympy2jax.SymbolicModule(expr)(d=d)
-
-    return inner
-
-
-def get_sympy_matern(p):
-    import sympy as sym
-    from sympy import factorial
-
-    d2 = sym.symbols('d2', positive=True, real=True)
-    exp_multiplier = -sym.sqrt(2 * p + 1)
-    coefficients = [
-        (factorial(p) / factorial(2 * p)) * (factorial(p + i) / (factorial(i) * factorial(p - i)))
-        * (sym.sqrt(8 * p + 4))**(p - i)
-        for i in range(p + 1)]
-    matern = sum(
-        c * sym.sqrt(d2**power)
-        for c, power in zip(coefficients, range(p, -1, -1))
-    ) * sym.exp(exp_multiplier * sym.sqrt(d2))
-    return d2, matern
-
-
-def build_matern_core(p):
-    """Legacy sympy-built Matérn core of the scaled difference d (see the note above)."""
-    import sympy as sym
-    import sympy2jax
-    d2, matern = get_sympy_matern(p)
-    d = sym.var('d', pos=True, real=True)
-
-    maternd = sym.powdenest(matern.subs(d2, d**2))
-    subrule = {
-        d * sym.DiracDelta(d): 0,
-        sym.Abs(d) * sym.DiracDelta(d): 0,
-        sym.Abs(d) * sym.sign(d): d,
-        d * sym.sign(d): sym.Abs(d)
-    }
-
-    def compute_next_derivative(expr):
-        return sym.powdenest(sym.expand(expr.diff(d).subs(subrule))).subs(subrule)
-
-    derivatives = [compute_next_derivative(maternd)]
-    for _ in range(2 * p - 1):
-        derivatives.append(compute_next_derivative(derivatives[-1]))
-
-    jax_derivatives = [make_sympy_callable(f) for f in derivatives]
-
-    wrapped_derivatives = [
-        make_custom_jvp_function(f, fprime)
-        for f, fprime in zip(jax_derivatives[:-1], jax_derivatives[1:])
-    ]
-
-    matern_func_raw = sympy2jax.SymbolicModule(maternd)
-    core_matern = jax.custom_jvp(lambda d: matern_func_raw(d=d))
-
-    @core_matern.defjvp
-    def core_matern_jvp(primals, tangents):
-        x, = primals
-        x_dot, = tangents
-        ans = core_matern(x)
-        ans_dot = wrapped_derivatives[0](x) * x_dot
-        return ans, ans_dot
-
-    return core_matern

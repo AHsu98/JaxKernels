@@ -20,8 +20,7 @@ def _raw_noise_variance(init_sigma2):
 
 
 def noise_variance(params):
-    """The floored noise variance stored in a parameter dict. Every builder uses this mapping so fitted and
-    reported variances agree."""
+    """The noise variance softplus(raw) + SIGMA2_FLOOR stored in a parameter dict."""
     return softplus(params['transformed_sigma2']) + SIGMA2_FLOOR
 
 
@@ -64,8 +63,7 @@ def build_neg_marglike_partialobs(t, y, v):
 
 def build_loocv(X, y):
     """Mean squared leave-one-out residual of GP regression: e_i = [C^-1 y]_i / [C^-1]_ii, C = K + sigma2 I
-    (the prediction of y_i from the other points is y_i - e_i). Cholesky-based: diag(C^-1) is the column norms
-    of L^-1 (until 2b015b7: jnp.linalg.inv and the algebraically equal K P y - diag(K P)/diag(P) * P y)."""
+    (y_i - e_i is the prediction of y_i from the other points); diag(C^-1) is the column norms of L^-1."""
     def loss(params):
         K = vectorize_kfunc(params['kernel'])(X, X)
         L = jnp.linalg.cholesky(K + noise_variance(params) * jnp.eye(len(X)))

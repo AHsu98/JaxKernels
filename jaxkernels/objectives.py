@@ -3,38 +3,34 @@
     y_i = (L_i u)(x_i) + e_i,    u ~ GP(0, k),    e ~ N(0, diag(noise))
 
 Observations come in groups of (functional, points): Observations([(eval_k, X0), (dx_k, X1), ...]). A functional is
-a kerneltools-style operator op(k, index) -> function (eval_k, dx_k, dt_k, dxx_k, kerneltools.partial_op(i),
-func_graph_comp's laplacian, ...). Their covariance is
+a kerneltools-style operator op(k, index) -> function (eval_k, dx_k, partial_op(i), laplacian, ...). The covariance
+of the observations is
 
     C = K + diag(noise) + jitter * diag(K),    K = [L_a L_b' k (X_a, X_b)]  (blocks over groups a, b)
 
-The jitter is relative per row (as func_graph_comp's nugget), so it is scale-aware for mixed value/derivative
-rows. Every objective factors C once (Cholesky); no inverse of C is formed: diag(C^-1) and blocks of C^-1 come
-from the columns of L^-1 (triangular solves). All are plain functions of (kernel, noise, ...), traceable, so they
-can be jitted and differentiated with respect to the kernel pytree and the noise:
+with the jitter relative per row, so it suits mixed value/derivative rows. Each objective factors C once by
+Cholesky and never forms C^-1. All are plain traceable functions of (kernel, noise, ...), so they can be jitted and
+differentiated with respect to the kernel pytree and the noise:
 
     neg_log_marginal_likelihood(kernel, noise, obs, y)  -log N(y | 0, C)  (total, not per observation)
-    loo_residuals(kernel, noise, obs, y)                exact leave-one-out: e_i = [C^-1 y]_i / [C^-1]_ii (y_i minus
-                                                        its prediction from the other rows), variance 1/[C^-1]_ii
+    loo_residuals(kernel, noise, obs, y)                exact leave-one-out residuals and variances
     loo_mse, loo_nlpd                                   mean squared LOO residual; mean negative log predictive
-                                                        density of the held-out y_i (scores the variance too)
-    kfold_residuals(kernel, noise, obs, y, folds)       exact K-fold: e_F = ([C^-1]_FF)^-1 [C^-1 y]_F
+                                                        density of the held-out y_i
+    kfold_residuals(kernel, noise, obs, y, folds)       exact K-fold residuals
     kfold_mse, kfold_nlpd
-    posterior(kernel, noise, obs, y, targets)           posterior mean and variance of functionals (targets:
-                                                        another Observations) given y
+    posterior(kernel, noise, obs, y, targets)           posterior mean and variance of target functionals
 
 noise: a scalar, one value per group (tuple/list), or an (n,) array. y: (n,) or (n, m) for m independent outputs
-sharing the kernel (then the objectives sum over outputs).
+sharing the kernel (the objectives sum over outputs).
 
-Jit them with folds closed over because folds are static index arrays. Eager nested derivatives of kernel functionals
-dispatch operator by operator and can be slow.
-
-Pitfalls: the functionals must be defined for the kernel (a derivative of order m on both arguments needs a
-kernel 2m times differentiable at x = y: Matérn p >= m; beyond that the values are finite but wrong); ops are
-structure (module-level or cached functionals such as kerneltools.partial_op, not lambdas created per call, or jit
-recompiles). Under eqx.filter_jit, pass changing scalar noise as an array scalar because Python floats are static.
-The LOO/K-fold formulas use columns of L^-1; for nearly noise-free data, both they and brute-force refits lose accuracy
-as the condition number of C grows.
+Pitfalls:
+- A derivative of order m on both arguments needs a kernel 2m times differentiable at x = y (Matérn p >= m);
+  beyond that the values are finite but wrong.
+- Functionals and folds are static structure: use module-level or cached functionals (kerneltools.partial_op),
+  not lambdas created per call, and close over folds when jitting, or jit recompiles. Under eqx.filter_jit, pass a
+  changing scalar noise as an array, since Python floats are static. Without jit, nested derivatives are slow.
+- For nearly noise-free data the LOO and K-fold objectives, like brute-force refits, lose accuracy as the condition
+  number of C grows.
 """
 from typing import Sequence
 
@@ -59,7 +55,7 @@ class Observations(eqx.Module):
 
     @classmethod
     def product(cls, ops, X):
-        """Every functional at every point (the basis of func_graph_comp's InducingPointRKHS)."""
+        """Every functional at every point."""
         return cls([(op, X) for op in ops])
 
     @property

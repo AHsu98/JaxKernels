@@ -1,5 +1,4 @@
-"""Regression tests for the fixes of the ah-hyper audit (B1-B12; see the kernels report in func-keql
-experiments/hyper/kernels)."""
+"""Regression tests for fixed kernel bugs."""
 import os
 import subprocess
 import sys
@@ -149,8 +148,7 @@ def test_B13_selected_derivative_out_of_range_raises():
 
 
 def test_B14_matern_built_inside_jit_through_nested_filter_jit():
-    """func-keql audit a15: a Matérn built inside jax.jit and differentiated inside a nested eqx.filter_jit leaked
-    sympy2jax constants as tracers ("No constant handler for type DynamicJaxprTracer")."""
+    """A Matérn built inside jax.jit can be differentiated inside a nested eqx.filter_jit."""
     def inner(k):
         return eqx.filter_jit(lambda k: jax.grad(jax.grad(lambda x: k(x, jnp.asarray(0.5))))(jnp.asarray(0.1)))(k)
     val = jax.jit(lambda l: inner(ScalarMaternKernel(2, l)))(0.3)

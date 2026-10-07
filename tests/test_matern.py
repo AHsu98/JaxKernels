@@ -1,7 +1,7 @@
 """Matérn kernels: values against scipy's Bessel K, exact Taylor coefficients at r = 0 (computed here independently,
 in rational arithmetic, from the Rasmussen & Williams polynomial), all mixed partials at coincident points up to
-order 2p (diagonally anisotropic radial and tensor-product forms, forward and reverse mode), the Laplacian
-functional, and the legacy sympy core."""
+order 2p (diagonally anisotropic radial and tensor-product forms, forward and reverse mode), and the Laplacian
+functional."""
 import itertools
 import math
 from fractions import Fraction
@@ -144,7 +144,7 @@ def test_tensor_product_matern_mixed_partials(ps):
 
 
 def laplacian(k, index):
-    """As func_graph_comp.util.laplacian: trace of the Hessian in one argument."""
+    """Trace of the Hessian in one argument."""
     def lapk(*x):
         return jnp.trace(jax.hessian(k, argnums=index)(*x))
     return lapk
@@ -191,13 +191,3 @@ def test_nu_and_errors():
         MaternKernel(2, jnp.array([0.5, 0.5]))(jnp.zeros(3), jnp.zeros(3))   # lengthscale shape mismatch
     with pytest.raises(ValueError):
         ScalarMaternKernel(2)(jnp.zeros(2), jnp.zeros(2))
-
-
-@pytest.mark.parametrize("p", [0, 2])
-def test_legacy_sympy_core_still_available(p):
-    """The former implementation (sympy, imported lazily) agrees with the closed form."""
-    from jaxkernels.matern import build_matern_core
-    core = build_matern_core(p)
-    d = jnp.linspace(-2, 2, 17)
-    np.testing.assert_allclose(jax.vmap(core)(d), jax.vmap(ScalarMaternKernel(p, 1.0).core_matern)(d),
-                               rtol=0, atol=1e-15)

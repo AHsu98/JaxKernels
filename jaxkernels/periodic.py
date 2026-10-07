@@ -13,8 +13,7 @@ so derivatives of Matérn profiles of s behave exactly as in the Euclidean case 
     PeriodicKernel(period, lengthscale)        k = variance * exp(-s / 2)          (exp-sine-squared, MacKay)
     PeriodicMaternKernel(p, period, lengthscale)  k = variance * phi_p(s)          (Matérn of the chordal distance)
 
-GPML's exp-sine-squared, exp(-2 sin^2(pi tau / P) / l_G^2), is PeriodicKernel with l = P l_G / (2 pi). For P = 1 the
-PeriodicKernel equals func-keql's `TransformedKernel(GaussianRBFKernel(l), periodic_transform)` (examples/rd_common.py).
+GPML's exp-sine-squared, exp(-2 sin^2(pi tau / P) / l_G^2), is PeriodicKernel with l = P l_G / (2 pi).
 
 Smoothness: PeriodicKernel is analytic. PeriodicMaternKernel is 2p times differentiable at x = y (as MaternKernel);
 its RKHS on the circle is norm-equivalent to the Sobolev space H^(nu + 1/2) (the trace of H^(nu + 1)(R^2) on a

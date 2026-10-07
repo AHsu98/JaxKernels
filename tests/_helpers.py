@@ -176,7 +176,7 @@ def catalog():
 
 
 def extra_cases():
-    """Kernels added on ah-hyper beyond the original catalog."""
+    """Periodic, heat, divergence-free and warped kernels."""
     from jaxkernels import PeriodicKernel, PeriodicMaternKernel, TensorProductKernel, MaternKernel
     a = jnp.asarray
     cases = [

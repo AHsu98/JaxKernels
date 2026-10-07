@@ -2,11 +2,8 @@ import os as _os
 
 import jax as _jax
 
-# Float64. Kernel matrices are too ill-conditioned for float32 Cholesky factorizations, and JaxKernels has always
-# enabled x64 when imported (until 2b015b7 as a side effect of importing matern.py). It still does, for backward
-# compatibility, but only when the user has not chosen: if the environment variable JAX_ENABLE_X64 is set (JAX's
-# own switch, read when jax is imported), JaxKernels leaves the setting alone, so JAX_ENABLE_X64=0 now gives
-# float32 (before, the import overrode it). Setting jax_enable_x64 explicitly at startup is recommended.
+# Enable float64 (kernel matrices are too ill-conditioned for float32 Cholesky factorizations) unless the user has
+# chosen: if JAX_ENABLE_X64 is set in the environment, the setting is left alone.
 X64_SET_BY_JAXKERNELS = "JAX_ENABLE_X64" not in _os.environ and not _jax.config.jax_enable_x64
 if X64_SET_BY_JAXKERNELS:
     _jax.config.update("jax_enable_x64", True)
