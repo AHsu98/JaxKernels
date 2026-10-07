@@ -1,7 +1,7 @@
 """Matérn kernels: values against scipy's Bessel K, exact Taylor coefficients at r = 0 (computed here independently,
 in rational arithmetic, from the Rasmussen & Williams polynomial), all mixed partials at coincident points up to
-order 2p (radial ARD and tensor-product forms, forward and reverse mode), the Laplacian functional, and the legacy
-sympy core."""
+order 2p (diagonally anisotropic radial and tensor-product forms, forward and reverse mode), the Laplacian
+functional, and the legacy sympy core."""
 import itertools
 import math
 from fractions import Fraction
@@ -59,7 +59,7 @@ def test_values_against_scipy(p):
     r = np.linspace(-4, 4, 81)
     phi = np.asarray(jax.vmap(lambda t: matern_phi(p, 0, t * t))(jnp.asarray(r)))
     np.testing.assert_allclose(phi, scipy_matern(p, r), rtol=0, atol=1e-15)
-    # kernels: scalar, isotropic in R^3, ARD in R^2
+    # kernels: scalar, isotropic in R^3, diagonally anisotropic in R^2
     x = jnp.asarray(np.random.default_rng(p).uniform(-1, 1, (10, 3)))
     y = jnp.asarray(np.random.default_rng(p + 10).uniform(-1, 1, (10, 3)))
     k = ScalarMaternKernel(p, 0.7, 1.3)
@@ -110,9 +110,9 @@ def _check_tensors(tensors, d, value_fn, rtol):
 
 @pytest.mark.parametrize("p", [1, 2, 3, pytest.param(4, marks=pytest.mark.slow)])
 @pytest.mark.parametrize("mode", ["fwd", "rev"])
-def test_ard_mixed_partials_at_coincident_points(p, mode):
-    """All partial derivatives d^alpha_x d^beta_y of the ARD Matérn at x = y with |alpha + beta| <= 2p (d = 2),
-    against the Taylor values; forward mode (jacfwd^n) and reverse mode (jacrev^n)."""
+def test_anisotropic_mixed_partials_at_coincident_points(p, mode):
+    """All partial derivatives d^alpha_x d^beta_y of the diagonally anisotropic Matérn at x = y with
+    |alpha + beta| <= 2p (d = 2), against the Taylor values; forward mode (jacfwd^n) and reverse mode (jacrev^n)."""
     if mode == "rev" and p > 3:
         pytest.skip("reverse mode checked to order 6")
     d, ls, var = 2, (0.4, 0.9), 1.3
@@ -188,7 +188,7 @@ def test_nu_and_errors():
     with pytest.raises(ValueError):
         MaternKernel(-1)
     with pytest.raises(ValueError):
-        MaternKernel(2, jnp.array([0.5, 0.5]))(jnp.zeros(3), jnp.zeros(3))   # ARD shape mismatch
+        MaternKernel(2, jnp.array([0.5, 0.5]))(jnp.zeros(3), jnp.zeros(3))   # lengthscale shape mismatch
     with pytest.raises(ValueError):
         ScalarMaternKernel(2)(jnp.zeros(2), jnp.zeros(2))
 

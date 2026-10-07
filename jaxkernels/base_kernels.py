@@ -43,13 +43,14 @@ def check_positive(value, name, minimum=0.0):
 
 
 def scaled_sqdist(x, y, lengthscale):
-    """sum_i ((x_i - y_i) / lengthscale_i)^2 for scalar or (d,) points; lengthscale scalar or (d,) (ARD)."""
+    """sum_i ((x_i - y_i) / lengthscale_i)^2 for scalar or (d,) points; lengthscale scalar (isotropic) or (d,)
+    (diagonally anisotropic: one per coordinate)."""
     diff = jnp.asarray(x) - jnp.asarray(y)
     if jnp.ndim(lengthscale) == 0:
         return jnp.sum(diff**2) / lengthscale**2
     if diff.ndim > 1 or diff.size != jnp.shape(lengthscale)[0]:
-        raise ValueError(f"ARD lengthscale of shape {jnp.shape(lengthscale)} does not match points of shape "
-                         f"{diff.shape}")
+        raise ValueError(f"per-coordinate lengthscale of shape {jnp.shape(lengthscale)} does not match points "
+                         f"of shape {diff.shape}")
     return jnp.sum((diff / lengthscale) ** 2)
 
 

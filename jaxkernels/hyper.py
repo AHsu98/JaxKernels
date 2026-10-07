@@ -122,8 +122,9 @@ def describe(tree):
 def with_hyperparameters(tree, values):
     """A copy of tree with the named hyperparameters set to the given (constrained) values.
 
-    Values are broadcast to the leaf's shape (a scalar sets every ARD lengthscale) and stored with the leaf's
-    dtype, so the result has the same structure as tree (jit does not retrace). Traceable in the values."""
+    Values are broadcast to the leaf's shape (a scalar sets every entry of a per-coordinate lengthscale) and
+    stored with the leaf's dtype, so the result has the same structure as tree (jit does not retrace). Traceable in
+    the values."""
     table = _by_name(tree)
     leaves, treedef = jax.tree_util.tree_flatten(tree)
     for name, v in values.items():

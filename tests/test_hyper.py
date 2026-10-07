@@ -39,7 +39,7 @@ def test_set_by_name_equals_construction():
     x, y = jnp.array([0.1, 0.2]), jnp.array([0.5, -0.3])
     assert float(k2(x, y)) == pytest.approx(float(ref(x, y)), rel=1e-14)
     assert jax.tree_util.tree_structure(k2) == jax.tree_util.tree_structure(k)
-    # scalars broadcast to ARD leaves
+    # scalars broadcast to per-coordinate lengthscale leaves
     a = with_hyperparameters(MaternKernel(2, jnp.array([0.3, 0.5])), {"lengthscale": 0.7})
     np.testing.assert_allclose(a.lengthscale, [0.7, 0.7], rtol=1e-14)
 

@@ -20,9 +20,10 @@ Smoothness: PeriodicKernel is analytic. PeriodicMaternKernel is 2p times differe
 its RKHS on the circle is norm-equivalent to the Sobolev space H^(nu + 1/2) (the trace of H^(nu + 1)(R^2) on a
 curve), the same order as the Matérn-nu RKHS on the line.
 
-Inputs: scalars (period and lengthscale scalars) or (d,) points (period, lengthscale scalar or (d,)); use them per
-coordinate in TensorProductKernel, e.g. TensorProductKernel([MaternKernel(2, lt), PeriodicKernel(2.0, lx)]) for a
-(t, x) problem periodic in x.
+Inputs: scalars (period and lengthscale scalars) or (d,) points (period and lengthscale scalar or (d,), one per
+coordinate; a (d,) lengthscale makes the kernel diagonally anisotropic); use them per coordinate in
+TensorProductKernel, e.g. TensorProductKernel([MaternKernel(2, lt), PeriodicKernel(2.0, lx)]) for a (t, x) problem
+periodic in x.
 """
 import equinox as eqx
 import jax
@@ -78,9 +79,9 @@ class _PeriodicBase(Kernel):
 class PeriodicKernel(_PeriodicBase):
     """Exp-sine-squared kernel k = variance * exp(-s/2), s the chordal distance^2 (module docstring); analytic.
 
-    period, lengthscale: scalars or (d,) arrays (one per coordinate); lengthscale in units of x (small-distance
-    behaviour exp(-(x - y)^2 / (2 l^2))). Periods are learnable leaves: freeze them (hyper.hyperparameter_filter)
-    when the period is known.
+    period, lengthscale: scalars or (d,) arrays (one per coordinate; a (d,) lengthscale makes the kernel
+    diagonally anisotropic); lengthscale in units of x (small-distance behaviour exp(-(x - y)^2 / (2 l^2))).
+    Periods are learnable leaves: freeze them (hyper.hyperparameter_filter) when the period is known.
     """
 
     def __init__(self, period=1.0, lengthscale=1.0, variance=1.0, min_lengthscale=0.01):

@@ -30,8 +30,9 @@ def _problem(seed=0):
 
 
 def reference_gram(k, obs):
-    """Closed-form derivatives of the ARD RBF kernel k~(tau) = var exp(-sum tau_i^2 / (2 l_i^2)), tau = x - y, in NumPy
-    (no autodiff): L_x M_y k = L_tau (-1)^ord(M) M_tau k~. With A = sum_i (tau_i^2 / l_i^4 - 1 / l_i^2) = Lap k~ / k~:
+    """Closed-form derivatives of the diagonally anisotropic RBF kernel k~(tau) = var exp(-sum tau_i^2 / (2 l_i^2)),
+    tau = x - y, in NumPy (no autodiff): L_x M_y k = L_tau (-1)^ord(M) M_tau k~.
+    With A = sum_i (tau_i^2 / l_i^4 - 1 / l_i^2) = Lap k~ / k~:
     d0 k~ = -tau_0/l_0^2 k~, d0^2 k~ = (tau_0^2/l_0^4 - 1/l_0^2) k~, d0 Lap k~ = (2 tau_0/l_0^4 - A tau_0/l_0^2) k~,
     Lap^2 k~ = (sum_i 2/l_i^4 - 4 sum_i tau_i^2/l_i^6 + A^2) k~."""
     ls, var = np.asarray(k.lengthscale), float(k.variance)
@@ -63,7 +64,7 @@ def test_gram_against_reference():
 
 
 def test_loo_with_matern_derivative_observations():
-    """Values and first derivatives with the ARD Matérn-5/2 (twice differentiable per argument)."""
+    """Values and first derivatives with the diagonally anisotropic Matérn-5/2 (twice differentiable per argument)."""
     rng = np.random.default_rng(3)
     X0, X1 = jnp.asarray(rng.uniform(0, 1, (10, 2))), jnp.asarray(rng.uniform(0, 1, (6, 2)))
     obs = Observations([(eval_k, X0), (partial_op(1), X1)])

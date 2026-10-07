@@ -9,9 +9,10 @@ two more Gaussians:
 
 (t, s >= 0; positive definite while every v_i > 0). Every function in its RKHS solves the heat equation, so the PDE
 need not be imposed as a term, and the diffusivity is a kernel hyperparameter (fit it from data by marginal
-likelihood or CV, jaxkernels.objectives). Inputs z = (t, x_1, ..., x_d) (time first); lengthscale scalar or (d,);
-diffusivity scalar (isotropic) or (d,) (diagonal diffusion). The initial covariance is the RBF, so these solutions
-are analytic in x for t >= 0; a rougher initial condition needs another kernel (no closed form for Matérn).
+likelihood or CV, jaxkernels.objectives). Inputs z = (t, x_1, ..., x_d) (time first); lengthscale scalar
+(isotropic) or (d,) (diagonally anisotropic); diffusivity scalar (isotropic) or (d,) (diagonal diffusion). The
+initial covariance is the RBF, so these solutions are analytic in x for t >= 0; a rougher initial condition needs
+another kernel (no closed form for Matérn).
 
 DivergenceFreeKernel: the 2-D matrix-valued kernel of v = (d psi/dx_2, -d psi/dx_1) for a stream function
 psi ~ GP(0, k_psi):

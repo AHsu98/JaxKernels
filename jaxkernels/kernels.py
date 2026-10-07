@@ -53,8 +53,10 @@ class TranslationInvariantKernel(Kernel):
 
 class _StationaryKernel(Kernel):
     """Shared fields of the lengthscale/variance kernels: softplus-positive raw leaves, lengthscale >
-    min_lengthscale (a static float). The lengthscale may be a scalar (isotropic) or a (d,) array (ARD: one
-    lengthscale per input coordinate)."""
+    min_lengthscale (a static float). The lengthscale may be a scalar (isotropic) or a (d,) array (diagonally
+    anisotropic: one lengthscale per input coordinate, i.e. the isotropic kernel of x / lengthscale taken
+    coordinatewise). This is called ARD in the GP literature when the lengthscales are fit; the kernel itself only
+    scales."""
     raw_variance: jax.Array
     raw_lengthscale: jax.Array
     min_lengthscale: float = eqx.field(static=True)
@@ -87,7 +89,8 @@ class MaternKernel(_StationaryKernel):
         k(x, y) = variance * phi_p(s),   s = sum_i ((x_i - y_i) / lengthscale_i)^2
 
     phi_p(s) = exp(-z) p!/(2p)! sum_{i=0}^p (p+i)!/(i!(p-i)!) (2z)^(p-i), z = sqrt(2 nu s) (Rasmussen & Williams
-    4.16): p = 0 exponential, 1: (1 + z) e^-z, 2: (1 + z + z^2/3) e^-z. lengthscale: scalar, or (d,) for ARD.
+    4.16): p = 0 exponential, 1: (1 + z) e^-z, 2: (1 + z + z^2/3) e^-z. lengthscale: scalar (isotropic), or (d,)
+    (diagonally anisotropic).
 
     Smoothness: k is 2p times differentiable at x = y (and analytic elsewhere), so an operator of order m applied
     to both arguments needs 2m <= 2p: the Laplacian needs p >= 2, third derivatives p >= 3. Derivatives of every
@@ -127,10 +130,10 @@ class ScalarMaternKernel(MaternKernel):
     Internally stored as "raw_" after applying softplus_inverse.
 
     The Matérn kernel of MaternKernel restricted to scalar inputs (shape () or (1,)); for points in R^d use
-    MaternKernel (radial, optionally ARD) or TensorProductKernel of ScalarMaternKernels (separable). Since
-    ah-hyper: closed form (no sympy), the same structure for every instance of a given p (jit does not retrace),
-    differentiable for p = 0, and scalar output for shape-(1,) inputs; values agree with the former sympy
-    implementation to 3.3e-16 and derivatives up to order 2p to 3.4e-13 relative.
+    MaternKernel (radial, optionally diagonally anisotropic) or TensorProductKernel of ScalarMaternKernels
+    (separable). Since ah-hyper: closed form (no sympy), the same structure for every instance of a given p (jit
+    does not retrace), differentiable for p = 0, and scalar output for shape-(1,) inputs; values agree with the
+    former sympy implementation to 3.3e-16 and derivatives up to order 2p to 3.4e-13 relative.
     """
 
     def __call__(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
@@ -154,7 +157,8 @@ class GaussianRBFKernel(_StationaryKernel):
 
     Parameters:
         variance > 0
-        lengthscale > 0: a scalar, or a (d,) array for ARD, k = variance * exp(-sum_i (x_i - y_i)^2 / (2 l_i^2))
+        lengthscale > 0: a scalar (isotropic), or a (d,) array (diagonally anisotropic),
+            k = variance * exp(-sum_i (x_i - y_i)^2 / (2 l_i^2))
     Internally stored as "raw_" after applying softplus_inverse.
     """
 
@@ -180,7 +184,8 @@ class RationalQuadraticKernel(_StationaryKernel):
 
     Parameters:
         variance > 0
-        lengthscale > 0: a scalar, or a (d,) array for ARD (||x - y||^2 / l^2 -> sum_i (x_i - y_i)^2 / l_i^2)
+        lengthscale > 0: a scalar (isotropic), or a (d,) array (diagonally anisotropic),
+            ||x - y||^2 / l^2 -> sum_i (x_i - y_i)^2 / l_i^2
         alpha > 0
     Internally stored as "raw_" after applying softplus_inverse.
     """
