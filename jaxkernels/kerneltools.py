@@ -1,4 +1,4 @@
-from functools import partial
+from functools import lru_cache, partial
 from types import ModuleType
 from typing import Any
 from typing import Callable
@@ -55,7 +55,13 @@ def get_selected_grad(k, index, selected_index):
     gradf = grad(k, index)
 
     def selgrad(*args):
-        return gradf(*args)[selected_index]
+        g = gradf(*args)
+        # under jit an out-of-range static index would be clamped silently
+        if jnp.ndim(g) != 1 or selected_index >= g.shape[0]:
+            raise IndexError(f"derivative in coordinate {selected_index} of points of shape {jnp.shape(g)}; "
+                             "dt_k/dx_k/dxx_k use the (t, x) convention (coordinates 0, 1); use partial_op(i) "
+                             "for points in R^d or derivative_op(n) for scalar points")
+        return g[selected_index]
 
     return selgrad
 
@@ -90,3 +96,47 @@ def nth_derivative_operator_1d(n):
     diff2_k.
     """
     return partial(nth_derivative_1d, n=n)
+
+
+# Cached functional factories. A functional op(k, index) is static structure wherever it is stored (e.g.
+# objectives.Observations), so equal arguments must return the same function object, or jit recompiles.
+
+
+@lru_cache(maxsize=None)
+def partial_op(*coords):
+    """The functional d^n / dx_c1 ... dx_cn for points x in R^d (coords: coordinate indices, repeats allowed):
+    partial_op(1) is d/dx_1, partial_op(0, 0) is d^2/dx_0^2, partial_op(0, 1) the mixed second derivative."""
+    def op(k, index):
+        f = k
+        for c in coords:
+            f = get_selected_grad(f, index, c)
+        return f
+    op.__name__ = op.__qualname__ = "d_" + "_".join(str(c) for c in coords) if coords else "eval"
+    return op
+
+
+@lru_cache(maxsize=None)
+def derivative_op(n):
+    """The functional d^n / dx^n for scalar points (cached nth_derivative_operator_1d)."""
+    def op(k, index):
+        return nth_derivative_1d(k, index, n)
+    op.__name__ = op.__qualname__ = f"d{n}"
+    return op
+
+
+def laplacian(k, index):
+    """Trace of the Hessian in argument `index`."""
+    def lapk(*x):
+        return jnp.trace(jax.hessian(k, argnums=index)(*x))
+    return lapk
+
+
+@lru_cache(maxsize=None)
+def linear_combination_op(*terms):
+    """sum_j c_j L_j for terms ((c_1, L_1), (c_2, L_2), ...) with Python-float coefficients (structure), e.g.
+    linear_combination_op((1.0, dt_k), (-0.1, dxx_k)). For traced coefficients (hyperparameters), write the
+    functional inside the traced function instead."""
+    def op(k, index):
+        parts = [(c, L(k, index)) for c, L in terms]
+        return lambda *x: sum(c * g(*x) for c, g in parts)
+    return op

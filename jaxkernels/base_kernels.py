@@ -1,15 +1,72 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 import equinox as eqx
 from abc import abstractmethod
 from jax.nn import softplus
 
+
 def softplus_inverse(y: jnp.ndarray) -> jnp.ndarray:
-    return y + jnp.log1p(-jnp.exp(-y))
+    """Inverse of softplus: log(exp(y) - 1) = y + log(-expm1(-y)), accurate for small y."""
+    return y + jnp.log(-jnp.expm1(-y))
+
 
 def is_concrete(x) -> bool:
     """False for values being traced by jit/grad/vmap, where Python comparisons are not possible."""
     return not isinstance(x, jax.core.Tracer)
+
+
+def as_float_array(x) -> jax.Array:
+    """x as a strongly typed array of the default float dtype.
+
+    Hyperparameter leaves are stored this way so kernels built from Python floats, NumPy scalars or JAX arrays
+    have the same dtype and weak type, and so share one jit cache entry."""
+    return jnp.asarray(x, dtype=jnp.result_type(float))
+
+
+def check_positive(value, name, minimum=0.0):
+    """Reject concrete values not above `minimum`; equality has no finite softplus-inverse raw coordinate.
+
+    Traced values are not checked.
+    """
+    if not is_concrete(value):
+        return
+    v = np.asarray(value)
+    bad = np.any(v <= minimum) if minimum > 0 else np.any(v <= 0)
+    if bad:
+        what = f"not above the minimum {minimum}" if minimum > 0 else "not positive"
+        raise ValueError(f"{name} {v} is {what}")
+
+
+def scaled_sqdist(x, y, lengthscale):
+    """sum_i ((x_i - y_i) / lengthscale_i)^2 for scalar or (d,) points; lengthscale scalar (isotropic) or (d,)
+    (diagonally anisotropic: one per coordinate)."""
+    diff = jnp.asarray(x) - jnp.asarray(y)
+    if jnp.ndim(lengthscale) == 0:
+        return jnp.sum(diff**2) / lengthscale**2
+    if diff.ndim > 1 or diff.size != jnp.shape(lengthscale)[0]:
+        raise ValueError(f"per-coordinate lengthscale of shape {jnp.shape(lengthscale)} does not match points "
+                         f"of shape {diff.shape}")
+    return jnp.sum((diff / lengthscale) ** 2)
+
+
+def fmt(x, precision=2):
+    """Short text for a (possibly array-valued, possibly traced) hyperparameter value."""
+    try:
+        a = np.asarray(x)
+    except Exception:  # traced
+        return "?"
+    if a.ndim == 0:
+        return f"{float(a):.{precision}f}"
+    return np.array2string(a, precision=precision, separator=",")
+
+
+def _is_scalar(other) -> bool:
+    try:
+        return jnp.ndim(other) == 0 and not isinstance(other, Kernel)
+    except Exception:
+        return isinstance(other, (int, float))
+
 
 class Kernel(eqx.Module):
     """Abstract base class for kernels in JAX + Equinox."""
@@ -33,28 +90,27 @@ class Kernel(eqx.Module):
             return SumKernel(self, other)
         else:
             return NotImplemented
-    
+
+    def __radd__(self, other):
+        """0 + k = k, so that sum([k1, k2, ...]) works."""
+        if isinstance(other, (int, float)) and other == 0:
+            return self
+        return NotImplemented
+
     def __mul__(self, other: "Kernel"):
         """
         Overload the '*' operator so we can do k1 * k2.
         Handles:
           - Kernel * Kernel -> ProductKernel(self, other)
           - Kernel * ProductKernel -> merge into one ProductKernel
-          - Kernel * scalar -> ProductKernel(self, ConstantKernel(scalar))
+          - Kernel * scalar -> ProductKernel(self, ConstantKernel(scalar)); the scalar may be traced
         """
-        # Scalar detection: jnp.ndim returns 0 for Python scalars and 0-d arrays
-        try:
-            is_scalar = jnp.ndim(other) == 0
-        except Exception:
-            is_scalar = isinstance(other, (int, float))
-
         if isinstance(other, ProductKernel):
             return ProductKernel(*( [self] + list(other.kernels) ))
         elif isinstance(other, Kernel):
             return ProductKernel(self, other)
-        elif is_scalar:
-            # Convert scalar to Python float and wrap as ConstantKernel
-            return ProductKernel(self, ConstantKernel(float(other)))
+        elif _is_scalar(other):
+            return ProductKernel(self, ConstantKernel(other))
         else:
             return NotImplemented
 
@@ -63,10 +119,10 @@ class Kernel(eqx.Module):
         Ensure scalar * kernel and Kernel * scalar behave the same way.
         """
         return self.__mul__(other)
-        
+
     def transform(self,f):
         """
-        Creates a transformed kernel, returning a kernel function 
+        Creates a transformed kernel, returning a kernel function
         k_transformed(x,y) = k(f(x),f(y))
         """
         return TransformedKernel(self,f)
@@ -81,13 +137,16 @@ class Kernel(eqx.Module):
         """
         kc = ConstantKernel(c)
         return kc * self
-    
+
 
 class TransformedKernel(Kernel):
     """
-    Transformed kernel, representing the 
+    Transformed kernel, representing the
     composition of a kernel with another
     fixed function
+
+    The transform is a static field: pass a module-level function, not a lambda created per call, or jit
+    recompiles. For a learnable transform use WarpedKernel.
     """
     kernel: Kernel
     transform: callable = eqx.field(static=True)
@@ -98,11 +157,11 @@ class TransformedKernel(Kernel):
 
     def __call__(self, x, y):
         return self.kernel(self.transform(x),self.transform(y))
-    
+
     def __str__(self):
         return f"Transformed({self.kernel.__str__()})"
 
-        
+
 class SumKernel(Kernel):
     """
     Represents the sum of multiple kernels:
@@ -127,21 +186,22 @@ class SumKernel(Kernel):
             return SumKernel(*(list(self.kernels) + [other]))
         else:
             return NotImplemented
-    
+
     def scale(self,c):
         """
         Push scaling down a level
         """
         return SumKernel(*[k.scale(c) for k in self.kernels])
-    
+
     def __str__(self):
         component_str = [k.__str__() for k in self.kernels]
-        return f"{" + ".join(component_str)}"
+        return " + ".join(component_str)
+
 
 class ProductKernel(Kernel):
     """
-    Represents the sum of multiple kernels:
-      k_sum(x, y) = prod_{k in kernels} k(x, y)
+    Represents the product of multiple kernels:
+      k_prod(x, y) = prod_{k in kernels} k(x, y)
     """
     kernels: tuple[Kernel, ...]
 
@@ -151,29 +211,33 @@ class ProductKernel(Kernel):
     def __call__(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
         return jnp.prod(jnp.array([k(x, y) for k in self.kernels]))
 
-    def __prod__(self, other: "Kernel"):
+    def __mul__(self, other: "Kernel"):
         """
-        If we do (k1*k2)*k3, the left side is a ProductKernel, so
-        we define its __prod__ to merge again into one ProductKernel.
+        If we do (k1*k2)*k3, the left side is a ProductKernel, so merge into one flat ProductKernel.
         """
-        if isinstance(other, SumKernel):
+        if isinstance(other, ProductKernel):
             return ProductKernel(*(list(self.kernels) + list(other.kernels)))
         elif isinstance(other, Kernel):
             return ProductKernel(*(list(self.kernels) + [other]))
+        elif _is_scalar(other):
+            return ProductKernel(*(list(self.kernels) + [ConstantKernel(other)]))
         else:
             return NotImplemented
-    
+
     def scale(self,c):
         """
         Scale the first kernel
-        """        
+        """
         return ProductKernel(self.kernels[0].scale(c), *self.kernels[1:])
-    
+
     def __str__(self):
         component_str = ["(" + k.__str__() + ")" for k in self.kernels]
-        return f"{"*".join(component_str)}"
+        return "*".join(component_str)
+
 
 class FrozenKernel(Kernel):
+    """A kernel whose hyperparameters receive no gradient (jax.lax.stop_gradient); hyper.hyperparameter_filter
+    also marks its leaves as frozen."""
     kernel:Kernel
     def __init__(self,kernel):
         self.kernel = kernel
@@ -183,6 +247,7 @@ class FrozenKernel(Kernel):
 
     def __str__(self):
         return self.kernel.__str__()
+
 
 class ConstantKernel(Kernel):
     """
@@ -201,18 +266,23 @@ class ConstantKernel(Kernel):
         if is_concrete(variance) and variance <= 0:
             raise ValueError("ConstantKernel requires a strictly positive constant.")
         # Store an unconstrained parameter via softplus-inverse
-        self.raw_variance = softplus_inverse(jnp.array(variance))
+        self.raw_variance = softplus_inverse(as_float_array(variance))
+
+    @property
+    def variance(self):
+        return softplus(self.raw_variance)
 
     def __call__(self, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
         v = softplus(self.raw_variance)
         return v
-    
+
     def scale(self,c):
         return ConstantKernel(c*softplus(self.raw_variance))
 
     def __str__(self):
         v = softplus(self.raw_variance)
-        return f"{v:.3f}"
+        return fmt(v, 3)
+
 
 class TensorProductKernel(Kernel):
     """
@@ -272,3 +342,46 @@ class TensorProductKernel(Kernel):
         return f"TensorProductKernel({names})"
 
     __str__ = __repr__
+
+
+class WeightedSumKernel(Kernel):
+    """
+    k(x, y) = sum_j w_j k_j(x, y) with learnable weights; the components must accept the same inputs.
+
+    weights: w_j = softplus(raw_weights_j), or with normalize=True the convex combination
+    w_j = softplus(raw_j) / sum_i softplus(raw_i), which keeps the total variance that of the components. Give the
+    components variance 1 and freeze their variances (hyper.hyperparameter_filter(k, exclude="kernels*variance")),
+    or the weights and component variances are redundant.
+
+    Fitting the weights (jaxkernels.objectives) selects among kernel families: a weight near 0 drops its component.
+    With free per-component lengthscales the mixture can act as a multi-scale model instead, so the weights need
+    not identify one family; for family selection, share one lengthscale or compare single-family fits.
+    """
+    kernels: tuple
+    raw_weights: jax.Array
+    normalize: bool = eqx.field(static=True)
+
+    def __init__(self, kernels, weights=None, normalize=False):
+        kernels = tuple(kernels)
+        if not kernels or not all(isinstance(k, Kernel) for k in kernels):
+            raise TypeError("WeightedSumKernel takes a non-empty sequence of kernels")
+        w = jnp.full((len(kernels),), 1.0 / len(kernels) if normalize else 1.0) if weights is None else weights
+        w = as_float_array(w)
+        if w.shape != (len(kernels),):
+            raise ValueError(f"{len(kernels)} kernels but weights of shape {w.shape}")
+        check_positive(w, "weights")
+        self.kernels = kernels
+        self.raw_weights = softplus_inverse(w)
+        self.normalize = bool(normalize)
+
+    @property
+    def weights(self):
+        w = softplus(self.raw_weights)
+        return w / jnp.sum(w) if self.normalize else w
+
+    def __call__(self, x, y):
+        w = self.weights
+        return sum(w[j] * k(x, y) for j, k in enumerate(self.kernels))
+
+    def __str__(self):
+        return " + ".join(f"{fmt(w)}*({k})" for w, k in zip(self.weights, self.kernels))
